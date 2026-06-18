@@ -1,0 +1,239 @@
+---
+sidebar_position: 8
+title: Common data patterns
+sidebar_label: Data patterns
+description: The recurring schema and query patterns every real app reaches for - pagination, soft deletes, idempotency, auditing, and full-text search.
+---
+
+import Quiz from '@site/src/components/Quiz';
+
+# Common data patterns
+
+Most applications hit the same handful of problems: paging through long lists, "deleting" without really deleting, surviving retries, knowing who changed what, and searching text. Each has a well-worn solution worth knowing as a pattern, not reinventing per project. These examples are mostly **PostgreSQL**; the ideas carry to any relational database.
+
+## Pagination: offset vs keyset
+
+You rarely return a whole table to a user - you return a **page**. The naive way is `OFFSET`:
+
+```sql
+-- page 500, 20 rows each
+SELECT * FROM posts ORDER BY created_at DESC
+LIMIT 20 OFFSET 9980;
+```
+
+This works but **scales badly**: to skip 9,980 rows the database must *read and discard* all of them first. Deep pages get linearly slower, and rows shift if data is inserted mid-paging (a user sees a duplicate or misses a row).
+
+**Keyset pagination** (also called **cursor** pagination) fixes both. Instead of "skip N rows", you say "give me rows *after* the last one I saw":
+
+```sql
+-- first page
+SELECT * FROM posts ORDER BY created_at DESC, id DESC
+LIMIT 20;
+
+-- next page: pass the last row's (created_at, id) as the cursor
+SELECT * FROM posts
+WHERE (created_at, id) < ('2026-06-01 10:00', 48213)
+ORDER BY created_at DESC, id DESC
+LIMIT 20;
+```
+
+The `WHERE` jumps straight to the right spot using an index on `(created_at, id)` - **page 5,000 costs the same as page 1**. Include a **tiebreaker** (`id`) so the order is total and stable when timestamps collide.
+
+| | Offset | Keyset / cursor |
+|---|---|---|
+| Deep-page speed | Degrades linearly | Constant |
+| Jump to arbitrary page | Easy | Hard (sequential only) |
+| Stable under inserts | No | Yes |
+
+:::tip Which to use
+Use **keyset** for infinite scroll, feeds, and APIs - anywhere you page forward through large or live data. **Offset** is fine for small admin tables where users click numbered pages.
+:::
+
+## Soft deletes
+
+Sometimes a "delete" should be reversible, or you need the row for history. A **soft delete** marks a row as gone instead of removing it - conventionally a nullable `deleted_at` timestamp:
+
+```sql
+ALTER TABLE accounts ADD COLUMN deleted_at TIMESTAMPTZ;
+
+-- "delete"
+UPDATE accounts SET deleted_at = now() WHERE id = 42;
+
+-- normal reads must exclude soft-deleted rows
+SELECT * FROM accounts WHERE deleted_at IS NULL;
+```
+
+The catch: **every query must remember the filter**, or deleted rows leak back. A **partial index** keeps lookups over live rows fast and small:
+
+```sql
+CREATE INDEX idx_accounts_active ON accounts (email)
+WHERE deleted_at IS NULL;
+```
+
+<details>
+<summary>Trade-offs to weigh</summary>
+
+- **Unique constraints break.** A soft-deleted `email` still occupies the value, blocking re-signup. Use a **partial unique index** (`UNIQUE ... WHERE deleted_at IS NULL`) so the constraint applies only to live rows.
+- **Tables grow forever** unless you archive or hard-delete old soft-deleted rows on a schedule.
+- **Foreign keys and cascades** get murkier - a soft-deleted parent still satisfies a `REFERENCES` check.
+- For legal "right to be forgotten" requirements, a soft delete is **not** a delete - you may still need to purge.
+
+Reach for soft deletes when you need undo or audit history; prefer a real delete (or a dedicated archive table) otherwise.
+</details>
+
+## Idempotency: surviving retries
+
+Networks fail mid-request. The client retries, but the first request may have already succeeded - so a naive "create payment" endpoint **charges twice**. An operation is **idempotent** when running it twice has the same effect as running it once.
+
+The standard fix is an **idempotency key**: the client generates a unique key per logical operation and sends it on every retry. The server records keys it has processed and refuses to act twice on the same one.
+
+```sql
+-- the key is UNIQUE, so a duplicate insert simply does nothing
+INSERT INTO payments (idempotency_key, account_id, amount_cents)
+VALUES ('a1b2c3-once', 42, 4999)
+ON CONFLICT (idempotency_key) DO NOTHING
+RETURNING id;
+```
+
+`ON CONFLICT ... DO NOTHING` (PostgreSQL's **upsert**) makes the insert safe to repeat: the first call writes the row, every retry hits the unique key and no-ops. If `RETURNING` comes back empty, the operation already happened - return the original result. (SQLite spells it `INSERT ... ON CONFLICT DO NOTHING` too; MySQL uses `INSERT IGNORE` / `ON DUPLICATE KEY UPDATE`.)
+
+:::note Idempotency is a contract
+The key must come from the **client** and stay fixed across retries - generating it server-side per request defeats the point. Pair it with a unique constraint so the database, not application logic, enforces "exactly once".
+:::
+
+## Auditing and change tracking
+
+Regulated and security-sensitive systems need to answer **"who changed this row, when, and to what?"** Two approaches:
+
+- **App-level auditing** - the application writes an audit record alongside each change. Simple and rich in business context, but **easy to forget** and bypassable by any code (or person) that touches the table directly.
+- **Database-level auditing** - a **trigger** captures every change automatically, so nothing slips through regardless of how the row was modified.
+
+A minimal trigger-based audit log in PostgreSQL:
+
+```sql
+CREATE TABLE account_audit (
+  id          BIGSERIAL PRIMARY KEY,
+  account_id  BIGINT,
+  changed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  changed_by  TEXT NOT NULL DEFAULT current_user,
+  old_row     JSONB,
+  new_row     JSONB
+);
+
+CREATE FUNCTION log_account_change() RETURNS trigger AS $$
+BEGIN
+  INSERT INTO account_audit (account_id, old_row, new_row)
+  VALUES (NEW.id, to_jsonb(OLD), to_jsonb(NEW));
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER account_audit_trg
+  AFTER UPDATE OR DELETE ON accounts
+  FOR EACH ROW EXECUTE FUNCTION log_account_change();
+```
+
+Storing rows as `JSONB` lets one audit table serve many shapes. The trigger fires inside the same transaction as the change, so the audit entry is **atomic with it** - you cannot have one without the other.
+
+:::tip Don't hand-roll it if you don't have to
+Many ORMs ship audit/versioning plugins (Rails `paper_trail`, Hibernate Envers, Django `simple-history`). Reach for those before writing triggers, unless you specifically need database-enforced, bypass-proof auditing.
+:::
+
+## Full-text search
+
+`LIKE '%term%'` cannot use an index and ignores word stems, ranking, and relevance - it falls apart past a small dataset. Relational databases offer a real **full-text search** built in.
+
+**PostgreSQL** converts text to a `tsvector` (normalized, stemmed tokens) and matches it against a `tsquery`, accelerated by a **GIN index**:
+
+```sql
+-- match documents containing forms of "database" and "scaling"
+SELECT id, title
+FROM articles
+WHERE to_tsvector('english', body) @@ to_tsquery('english', 'database & scaling');
+
+-- make it fast: index a generated tsvector column
+ALTER TABLE articles
+  ADD COLUMN search tsvector
+  GENERATED ALWAYS AS (to_tsvector('english', title || ' ' || body)) STORED;
+
+CREATE INDEX idx_articles_search ON articles USING GIN (search);
+```
+
+**SQLite** offers the **FTS5** extension - a virtual table that indexes text for fast `MATCH` queries:
+
+```sql
+CREATE VIRTUAL TABLE articles_fts USING fts5(title, body);
+
+INSERT INTO articles_fts (title, body)
+VALUES ('Scaling Postgres', 'Tips for database scaling under load');
+
+SELECT * FROM articles_fts WHERE articles_fts MATCH 'database scaling';
+```
+
+Both give stemming, ranking, and index-backed speed - enough for search boxes on most apps.
+
+:::info When to reach for a dedicated search engine
+Built-in full-text search covers a lot, but if you need fuzzy/typo tolerance, faceting, multi-language analysis, or relevance tuning at scale, a dedicated **search engine** (Elasticsearch, OpenSearch) is the right tool - introduced in [Stage 0](../00-orientation/intro.mdx). And for *meaning-based* search rather than keyword matching, that is **vector search**, also covered in Stage 0.
+:::
+
+## Quick quiz
+
+<Quiz
+  title="Common data patterns"
+  questions={[
+    {
+      prompt: "Why does keyset (cursor) pagination scale better than OFFSET for deep pages?",
+      options: [
+        {text: "It uses a WHERE on an indexed column to jump straight to the page, instead of reading and discarding skipped rows", correct: true},
+        {text: "It caches every page in memory", correct: false},
+        {text: "It returns fewer columns", correct: false},
+        {text: "It disables the ORDER BY", correct: false},
+      ],
+      explanation: "OFFSET must read and throw away all skipped rows, so deep pages slow down linearly. Keyset seeks via an indexed WHERE, so any page costs the same.",
+    },
+    {
+      prompt: "What is a key downside of soft deletes that you must design around?",
+      options: [
+        {text: "Every read must filter out deleted rows, and unique constraints still see the dead values", correct: true},
+        {text: "They make the table read-only", correct: false},
+        {text: "They delete the data faster than a normal DELETE", correct: false},
+        {text: "They cannot be indexed at all", correct: false},
+      ],
+      explanation: "Soft-deleted rows remain, so queries must add WHERE deleted_at IS NULL and unique constraints need a partial index limited to live rows.",
+    },
+    {
+      prompt: "How does an idempotency key make a write safe to retry?",
+      options: [
+        {text: "A unique key plus ON CONFLICT DO NOTHING means a repeated request no-ops instead of acting twice", correct: true},
+        {text: "It encrypts the request body", correct: false},
+        {text: "It retries the request automatically", correct: false},
+        {text: "It speeds up the insert", correct: false},
+      ],
+      explanation: "The client sends the same key on every retry; the unique constraint catches duplicates and ON CONFLICT DO NOTHING ensures the effect happens exactly once.",
+    },
+    {
+      prompt: "Why is trigger-based auditing harder to bypass than app-level auditing?",
+      options: [
+        {text: "The trigger fires in the same transaction for any change to the row, regardless of what made it", correct: true},
+        {text: "Triggers run on a separate server", correct: false},
+        {text: "App code cannot write to audited tables", correct: false},
+        {text: "Triggers encrypt the audit log", correct: false},
+      ],
+      explanation: "A trigger captures every UPDATE/DELETE atomically with the change, so even direct SQL or a forgetful code path is recorded - app-level logging can be skipped.",
+    },
+    {
+      prompt: "Why prefer a tsvector + GIN index over LIKE '%term%' for search?",
+      options: [
+        {text: "LIKE with a leading wildcard cannot use an index and ignores stemming and ranking; full-text search is indexed and relevance-aware", correct: true},
+        {text: "LIKE only works on numbers", correct: false},
+        {text: "tsvector stores the data twice for safety", correct: false},
+        {text: "There is no real difference", correct: false},
+      ],
+      explanation: "A leading-wildcard LIKE forces a full scan and treats text as raw substrings. Full-text search normalizes/stems tokens and is backed by a GIN index for speed and ranking.",
+    },
+  ]}
+/>
+
+:::tip Next up
+That completes the application band. **Stage 5 - Beyond Relational** returns to data modeling for NoSQL stores and analytics.
+:::

@@ -1,0 +1,231 @@
+---
+title: Glossary
+sidebar_label: Glossary
+description: Plain-English one-line definitions of every key database term used across the course, A to Z.
+sidebar_position: 99
+---
+
+# Glossary
+
+Every key term in the course, defined in one line. Use it as a quick reference while you read, or to refresh a term you have half-forgotten. Terms are grouped alphabetically.
+
+## A
+
+- **ACID** - the guarantee that a transaction is Atomic, Consistent, Isolated, and Durable.
+- **Aggregate function** - a function that collapses many rows into one value (`COUNT`, `SUM`, `AVG`, `MIN`, `MAX`).
+- **Anomaly (insert / update / delete)** - data problems caused by a poorly normalized schema duplicating facts.
+- **ANN (Approximate Nearest Neighbor)** - fast similarity search that trades a little accuracy for big speed on vectors.
+- **Atomicity** - the "A" in ACID: all steps of a transaction happen, or none do.
+- **Autovacuum** - PostgreSQL's background job that reclaims dead-row space and refreshes planner statistics.
+- **Availability** - the "A" in CAP: every request gets a (non-error) response, even during a partition.
+
+## B
+
+- **Base backup** - a full physical copy of a database cluster, the starting point for point-in-time recovery.
+- **BM25** - a keyword-relevance ranking used by full-text search; often combined with vectors in hybrid search.
+- **B-tree** - the default balanced-tree index structure, good for equality and range lookups.
+- **Bloat** - wasted space left by dead rows; reclaimed by vacuuming.
+
+## C
+
+- **Cache** - a fast store holding copies of hot data to avoid repeated database work.
+- **Cache-aside** - a caching pattern: read cache, on miss read the database and populate, invalidate on write.
+- **CAP theorem** - during a network partition a distributed system must choose Consistency or Availability.
+- **Cardinality** - how many distinct values a column has; high cardinality makes indexes more useful.
+- **CASE expression** - SQL conditional logic that returns different values per branch.
+- **CDC (Change Data Capture)** - streaming row-level changes out of a database, usually from its write-ahead log.
+- **Chunking** - splitting documents into pieces before embedding them for retrieval-augmented generation.
+- **Column** - a named, typed field shared by every row of a table.
+- **Column-family store** - a NoSQL model (Cassandra) built for huge write volume across many machines.
+- **Columnar storage** - storing data by column, making analytical aggregations fast (used by warehouses).
+- **Composite index** - an index on several columns, usable left-to-right (the left-prefix rule).
+- **Composite key** - a primary key made of more than one column.
+- **Connection pool** - a reused set of open database connections shared across application requests.
+- **Consistency (ACID)** - the "C" in ACID: every transaction leaves the data in a valid state.
+- **Consistency (distributed)** - every node returns the same latest value; the property traded in CAP.
+- **Consensus** - an algorithm (Raft, Paxos) letting distributed nodes agree on an ordered set of writes.
+- **Constraint** - a rule the database enforces on data (`NOT NULL`, `UNIQUE`, `CHECK`, `FOREIGN KEY`).
+- **Correlated subquery** - a subquery that references the outer query and is evaluated per outer row.
+- **Covering index** - an index that contains every column a query needs, so the table is never read.
+- **Crow's foot** - ER-diagram notation whose forked end means "many".
+- **CTE (Common Table Expression)** - a named temporary result defined with `WITH` to keep queries readable.
+- **Cypher** - the query language of the Neo4j graph database.
+
+## D
+
+- **Data** - raw facts with no meaning on their own.
+- **Database** - an organized collection of data that software can store, find, and change reliably.
+- **DBMS** - the database management system: the engine that stores, protects, and queries the data.
+- **DCL (Data Control Language)** - SQL for permissions: `GRANT` and `REVOKE`.
+- **Deadlock** - two transactions each holding a lock the other needs, frozen until one is aborted.
+- **DDL (Data Definition Language)** - SQL that defines structure: `CREATE`, `ALTER`, `DROP`.
+- **Denormalization** - deliberately duplicating data for read speed, accepting a sync cost.
+- **Dimension table** - a warehouse table of descriptive attributes you slice facts by.
+- **Dirty read** - reading another transaction's uncommitted change.
+- **DML (Data Manipulation Language)** - SQL that changes rows: `INSERT`, `UPDATE`, `DELETE`.
+- **Document store** - a NoSQL model (MongoDB) holding JSON-like records that can each differ in shape.
+- **Downsampling** - reducing time-series resolution (e.g. per-second to per-minute) to save space.
+- **Durability** - the "D" in ACID: once committed, a change survives crashes.
+
+## E
+
+- **ELT** - load raw data into the warehouse, then transform it there with SQL.
+- **Embedding** - a list of numbers capturing the meaning of text, an image, or audio.
+- **Embed vs reference** - the document-modeling choice between nesting related data or linking to it.
+- **ER model (Entity-Relationship)** - a diagram of entities, their attributes, and the relationships between them.
+- **ETL** - transform data before loading it into the warehouse.
+- **EXISTS** - a subquery operator that is true when the subquery returns any row.
+- **EXPLAIN / EXPLAIN ANALYZE** - shows a query's execution plan; `ANALYZE` adds actual run statistics.
+- **Expand-contract** - a zero-downtime migration: add the new, dual-write, migrate reads, drop the old.
+
+## F
+
+- **Fact table** - the central warehouse table holding measures plus foreign keys to dimensions.
+- **Foreign key (FK)** - a column whose value must match a primary key in another table.
+- **Full-text search** - indexed search over natural-language text (Postgres `tsvector`/GIN, SQLite FTS5).
+
+## G
+
+- **Generated column** - a column whose value is computed from other columns (`GENERATED ALWAYS AS`).
+- **GIN index** - a PostgreSQL index for multi-valued data like `jsonb` and full-text vectors.
+- **GQL** - the ISO graph query language standard (2024).
+- **Graph database** - a store of nodes and edges, built for relationship-heavy questions.
+- **GRANT / REVOKE** - DCL statements that give or remove privileges.
+- **GROUP BY** - groups rows so aggregates are computed per group.
+
+## H
+
+- **HAVING** - filters groups after aggregation (unlike `WHERE`, which filters rows before).
+- **HNSW** - a graph-based approximate-nearest-neighbor index for vector search.
+- **Hotspot** - a shard or partition that receives a disproportionate share of traffic.
+- **Hybrid search** - combining keyword (BM25) and vector similarity, then reranking the results.
+
+## I
+
+- **Idempotency key** - a client-supplied identifier that makes a retried write apply only once.
+- **Index** - a sorted lookup structure that speeds reads on chosen columns, at a small write cost.
+- **Isolation** - the "I" in ACID: concurrent transactions do not see each other's partial work.
+- **Isolation level** - how strictly transactions are isolated (Read Uncommitted to Serializable).
+
+## J
+
+- **JOIN** - combines rows from two tables on a matching condition (`INNER`, `LEFT`, `RIGHT`, `FULL`, `CROSS`).
+- **JSON column** - a column holding a JSON document, queryable inside a relational table.
+
+## K
+
+- **Keyset pagination** - paging with `WHERE id > :last` instead of `OFFSET`; scales to deep pages.
+- **Key-value store** - a NoSQL model (Redis) mapping a key to a value for very fast lookups.
+
+## L
+
+- **Lakehouse** - a data lake with table formats (Iceberg, Delta) adding ACID, schema evolution, and time travel.
+- **Least privilege** - granting each role only the permissions it actually needs.
+- **Left-prefix rule** - a composite index is usable from its leftmost column rightward.
+- **LIMIT** - caps how many rows a query returns.
+- **Lock** - a reservation a transaction takes on data so others wait their turn.
+
+## M
+
+- **Materialized view** - a stored, refreshable snapshot of a query's result, for fast reads.
+- **Migration** - a versioned, repeatable change to the database schema.
+- **MVCC (Multi-Version Concurrency Control)** - giving each transaction a consistent snapshot so readers do not block writers.
+
+## N
+
+- **N+1 problem** - firing one query per row in a loop instead of one combined query.
+- **Natural key** - a primary key made of real-world data (can change, so often risky).
+- **NewSQL** - distributed databases offering SQL and ACID with horizontal scale (CockroachDB, Spanner, TiDB).
+- **Non-repeatable read** - reading the same row twice in a transaction and getting different values.
+- **Normalization** - structuring tables so each fact is stored once.
+- **NoSQL** - a family of non-relational models (document, key-value, column-family, graph).
+- **NULL** - the absence of a value; comparisons with it use three-valued logic.
+
+## O
+
+- **OLAP** - Online Analytical Processing: few large aggregate queries over lots of history.
+- **OLTP** - Online Transaction Processing: many small, fast reads and writes.
+- **ON DELETE (CASCADE / RESTRICT / SET NULL)** - what happens to child rows when a parent row is deleted.
+- **ORDER BY** - sorts the result rows.
+- **ORM (Object-Relational Mapping)** - a library that maps database rows to application objects.
+
+## P
+
+- **PACELC** - extends CAP: if Partition then C-or-A, Else trade Latency-or-Consistency.
+- **Pagination** - returning results in pages (offset-based or keyset).
+- **Parameterized query** - sending SQL with placeholders and binding values separately; the core injection defense.
+- **Partial index** - an index over only the rows matching a condition (`CREATE INDEX ... WHERE`).
+- **Partitioning** - splitting one large table into pieces by a key, often within a machine.
+- **pgvector** - a PostgreSQL extension storing and searching embeddings next to relational data.
+- **Phantom read** - a query's matching row set changes within a transaction as new rows appear.
+- **PITR (Point-In-Time Recovery)** - restoring a database to an exact past moment using a base backup plus WAL.
+- **Polyglot persistence** - using several database types in one system, the right tool per job.
+- **Primary key (PK)** - the column(s) that uniquely identify each row.
+- **Primary-replica** - a replication topology where one node takes writes and replicas serve reads.
+
+## Q
+
+- **Query** - a question asked of the database; in SQL you describe the result, not the steps.
+- **Query plan** - the database's chosen strategy for executing a query (see SCAN vs SEARCH).
+
+## R
+
+- **RAG (Retrieval-Augmented Generation)** - an LLM answers using documents retrieved by vector search.
+- **Read replica** - a copy of the database that serves read traffic to offload the primary.
+- **Re-embedding** - regenerating all stored vectors after changing the embedding model.
+- **Reranking** - reordering retrieved candidates with a stronger relevance model.
+- **Replication** - keeping copies of data on multiple nodes.
+- **RETURNING** - a clause that returns rows affected by an `INSERT`, `UPDATE`, or `DELETE`.
+- **Role** - a named set of privileges granted to users (DCL).
+- **Row** - a single record in a table.
+- **Row-level security (RLS)** - per-row access rules enforced by the database.
+- **RPO (Recovery Point Objective)** - how much data loss, in time, is acceptable.
+- **RTO (Recovery Time Objective)** - how long a restore may take.
+
+## S
+
+- **Savepoint** - a marker letting you roll back part of a transaction without aborting all of it.
+- **SCAN vs SEARCH** - a full-table read versus an index seek in a query plan.
+- **Schema** - the defined structure of a database: its tables, columns, types, and constraints.
+- **SELECT** - the SQL statement that reads rows.
+- **Selectivity** - the fraction of rows a condition matches; high selectivity makes indexes pay off.
+- **Serverless database** - a managed database that scales (often to zero) without you running servers.
+- **Set operation** - `UNION`, `INTERSECT`, or `EXCEPT` combining the result sets of two queries.
+- **Shard key** - the column deciding which shard a row lives on; needs high cardinality and even access.
+- **Sharding** - spreading data across many machines by a shard key.
+- **Slowly changing dimension** - a warehouse dimension whose attributes change over time (Type 1 overwrite, Type 2 history).
+- **Snapshot** - a frozen point-in-time copy of data.
+- **Snowflake schema** - a star schema whose dimensions are further normalized into sub-tables.
+- **Soft delete** - marking a row deleted with a timestamp instead of removing it.
+- **Star schema** - a central fact table surrounded by flat dimension tables.
+- **Stored procedure** - reusable procedural logic stored and run in the database.
+- **Subquery** - a query nested inside another query.
+- **Surrogate key** - a generated, stable identifier used as the primary key.
+
+## T
+
+- **Table** - a grid of rows and columns holding one kind of thing.
+- **TCL (Transaction Control Language)** - SQL controlling transactions: `BEGIN`, `COMMIT`, `ROLLBACK`.
+- **Three-valued logic** - SQL boolean logic with TRUE, FALSE, and UNKNOWN (from `NULL`).
+- **Time-series database** - a store optimized for time-stamped data, retention, and downsampling.
+- **TLS / sslmode** - encryption for database connections; `verify-full` also verifies server identity.
+- **Transaction** - a group of changes treated as a single all-or-nothing unit.
+- **tsvector** - PostgreSQL's preprocessed full-text search column type.
+
+## U
+
+- **UNIQUE** - a constraint forbidding duplicate values in a column.
+- **UPSERT** - insert a row, or update it if it already exists (`INSERT ... ON CONFLICT`).
+
+## V
+
+- **VACUUM** - reclaims space from dead rows and updates statistics.
+- **Vector database** - a store that finds items similar in meaning using embeddings.
+- **View** - a saved query that behaves like a read-only table.
+
+## W
+
+- **WAL (Write-Ahead Log)** - a durability log written before changes are applied; also feeds replication and CDC.
+- **Warehouse** - a database built for analytics (columnar, OLAP).
+- **WHERE** - filters which rows a query returns.
+- **Window function** - a function computing across a set of rows related to the current row, without collapsing them (`OVER`).

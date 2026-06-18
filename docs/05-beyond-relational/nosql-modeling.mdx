@@ -1,0 +1,114 @@
+---
+sidebar_position: 4
+title: Modeling for NoSQL
+sidebar_label: NoSQL modeling
+description: Design NoSQL data around access patterns - embedding vs referencing, and the modeling idioms of document, key-value, wide-column, and graph stores.
+---
+
+import Quiz from '@site/src/components/Quiz';
+
+# Modeling for NoSQL
+
+Relational design starts from the data: find the entities, normalize so each fact lives once, and let the query planner join them back at read time. **NoSQL modeling flips this.** You start from the **access patterns** - the specific reads your app will serve - and shape the data so those reads are fast, even if that means duplicating data. The mindset shift is the whole lesson.
+
+## Access-pattern-first
+
+In a relational schema you can ask almost any question after the fact, because joins recombine normalized tables. Most NoSQL stores either cannot join cheaply or not at all, so you design for the queries you *know* you will run. Ask "what will I read, and how often?" before "what are my entities?" - then store the data pre-shaped for those reads.
+
+## Embedding vs referencing
+
+The core document-modeling decision. Given a customer and their orders, you can **embed** the orders inside the customer document, or **reference** them by id in a separate collection.
+
+```json
+// Embedded: one read returns the customer and their orders
+{
+  "_id": "cust_1",
+  "name": "Ana",
+  "orders": [
+    { "id": 101, "total": 40.00 },
+    { "id": 102, "total": 25.00 }
+  ]
+}
+```
+
+```json
+// Referenced: orders live separately, linked by customer_id
+{ "_id": "cust_1", "name": "Ana" }
+{ "_id": "order_101", "customer_id": "cust_1", "total": 40.00 }
+```
+
+- **Embed** when the related data is read together, belongs to one owner, and is bounded in size - one read, no join, and updates to the whole thing are atomic. The cost is duplication and documents that can grow without limit.
+- **Reference** when the data is large, shared across owners, or updated independently - closer to normalization, but you stitch it together with a second query or a `$lookup`.
+
+Rule of thumb: **embed what you read together; reference what you share or what grows unbounded.**
+
+## How the four families want to be modeled
+
+Each family rewards a different shape:
+
+- **Document** (MongoDB) - nest related data into documents sized to your reads; embed vs reference as above. Modern MongoDB also has `$lookup` joins and multi-document transactions, so the line with relational has blurred.
+- **Key-value** (Redis) - everything is reached by a single key, so the design *is* the key: `cart:user_8842`, `session:abc`. Store a denormalized blob per key; there are no queries across values.
+- **Wide-column** (Cassandra, DynamoDB) - **one table per query**. You pick a **partition key** (which node holds the data) and **clustering keys** (sort within it), and you happily **duplicate** the same data across several tables so each query hits exactly one. "Query-first" design taken to its conclusion.
+- **Graph** (Neo4j) - relationships are first-class. You model nodes and the edges between them, and traverse: "friends of friends who bought X" is a short walk, not a pile of joins.
+
+## Trade-offs, and 2026
+
+NoSQL modeling trades the relational guarantees you learned in Stage 2 for read speed and scale:
+
+- **Duplication is normal**, so you take on keeping copies in sync - and you accept the [update anomaly](../02-designing/normalization.mdx) on purpose.
+- **Joins are limited or absent**, so you pre-join by embedding or duplicating.
+- **Consistency is often tunable** rather than guaranteed (the CAP trade-off, covered in [Stage 6](../06-scaling/index.mdx)).
+
+The 2026 picture is **convergence**: document stores gained transactions and joins, relational databases gained JSON columns and vector search, and the new **ISO GQL** standard (2024) is doing for graph queries what SQL did for relational. Pick the store whose *default* model fits your dominant access pattern - but know the categories overlap more than they used to.
+
+## Quick quiz
+
+<Quiz
+  title="NoSQL modeling"
+  questions={[
+    {
+      prompt: "How does NoSQL data modeling differ from relational design?",
+      options: [
+        {text: "You design around your access patterns (the reads), not by normalizing entities first", correct: true},
+        {text: "You always normalize to 3NF first", correct: false},
+        {text: "You never think about queries", correct: false},
+        {text: "It is identical, just different syntax", correct: false},
+      ],
+      explanation: "NoSQL is query-first: shape the data for the reads you'll serve, since joins are limited. Relational normalizes first and joins later.",
+    },
+    {
+      prompt: "When should you EMBED related data in a document rather than reference it?",
+      options: [
+        {text: "When it's read together, owned by one parent, and bounded in size", correct: true},
+        {text: "When it's shared across many owners", correct: false},
+        {text: "When it grows without limit", correct: false},
+        {text: "Always - embedding is always better", correct: false},
+      ],
+      explanation: "Embed data you read together and that belongs to one owner, for one fast atomic read. Reference shared or unbounded data instead.",
+    },
+    {
+      prompt: "What is the wide-column (Cassandra) modeling idiom?",
+      options: [
+        {text: "One table per query, duplicating data so each query hits one partition", correct: true},
+        {text: "Fully normalized tables joined at read time", correct: false},
+        {text: "A single key-value blob per user", correct: false},
+        {text: "Nodes and edges traversed as a graph", correct: false},
+      ],
+      explanation: "Wide-column design is query-first: a table shaped per access pattern, with a partition key, duplicating data across tables rather than joining.",
+    },
+    {
+      prompt: "What do you accept when you duplicate data for read speed in NoSQL?",
+      options: [
+        {text: "Responsibility for keeping the copies in sync (the update anomaly, on purpose)", correct: true},
+        {text: "That queries become slower", correct: false},
+        {text: "That you can no longer store the data", correct: false},
+        {text: "Automatic normalization", correct: false},
+      ],
+      explanation: "Duplication trades write-time bookkeeping for read speed - the same update anomaly normalization avoids, taken on deliberately.",
+    },
+  ]}
+/>
+
+:::tip Next up
+**[Graph and time-series databases](./graph-and-timeseries.mdx)** - two specialized stores, hands-on: graph traversal with Cypher, and time-series engines for metrics and sensors.
+:::

@@ -1,0 +1,221 @@
+---
+title: Stage 5 review
+sidebar_label: Stage 5 review
+description: Cumulative Stage 5 review - choose between OLTP and OLAP, star vs snowflake, embed vs reference, graph vs relational vs time-series, and JSON vs columns, plus a runnable example, a comprehensive quiz, and a cheatsheet.
+sidebar_position: 7
+---
+
+import SqlRunner from '@site/src/components/SqlRunner';
+import Quiz from '@site/src/components/Quiz';
+
+# Stage 5 review
+
+This page pulls Stage 5 together. **The skill is matching the data shape and workload to the right model** - relational is the default, but document, columnar, graph, time-series, and JSON each win in their lane. Work the scenarios before opening the answers, then take the quiz and keep the cheatsheet handy.
+
+Go back to a lesson if a scenario stumps you: [OLTP vs OLAP](./oltp-olap.mdx), [Warehousing](./warehousing.mdx), [NoSQL modeling](./nosql-modeling.mdx), [Graph and time-series](./graph-and-timeseries.mdx), [JSON in a relational database](./json.mdx).
+
+## Scenarios
+
+### Scenario 1 - OLTP or OLAP?
+
+(a) The checkout writes an order and decrements stock, thousands of times a minute. (b) Finance asks for revenue by region by month for the last three years. Which workload is each, and where does each run?
+
+<details>
+<summary>Show the answer</summary>
+
+- (a) **OLTP** - many small, fast reads and writes. Runs on your live **row-store** (PostgreSQL, MySQL) tuned for transactions.
+- (b) **OLAP** - a few large aggregate questions over lots of history. Runs on a **columnar warehouse** (Snowflake, BigQuery, ClickHouse, DuckDB).
+
+Running (b) on the live OLTP database is slow and competes with real orders, so data is copied to a warehouse first. **OLTP records what happens; OLAP explains what happened.**
+
+</details>
+
+### Scenario 2 - Star or snowflake, ETL or ELT?
+
+You are designing a warehouse for sales analytics. When do you snowflake a dimension instead of keeping a flat star, and why is ELT (not ETL) the modern default?
+
+<details>
+<summary>Show the answer</summary>
+
+Default to a **star schema**: one central **fact** table (sales) surrounded by flat **dimension** tables (date, product, store). Simple joins, fast queries. **Snowflake** (normalize a dimension into sub-tables) only when a dimension is large and shared enough that the duplication genuinely hurts - otherwise the extra joins cost more than they save.
+
+**ELT** loads raw data into the warehouse first, then transforms it *there* with SQL (often via **dbt**). It beats classic **ETL** because cheap, scalable warehouse compute does the transform, raw data stays available to re-transform, and transformations are version-controlled SQL.
+
+</details>
+
+### Scenario 3 - Embed or reference?
+
+In a document database, you store blog posts and their comments. Should comments be **embedded** in the post document or stored as **separate** documents that reference it?
+
+<details>
+<summary>Show the answer</summary>
+
+**Model by access pattern.** If you almost always read a post *with* its comments, and comments are bounded, **embed** them - one read returns everything. If comments are unbounded, written heavily on their own, or queried independently, **reference** them - keep posts and comments separate to avoid a giant, contended document.
+
+Rule of thumb: **embed what you read together and that stays bounded; reference what grows without limit or is accessed on its own.**
+
+</details>
+
+### Scenario 4 - Which specialized store?
+
+Pick the best fit and say why: (a) "people who bought this also bought" recommendations; (b) per-second CPU metrics from 10,000 servers, kept 30 days; (c) a product catalog where every item has different attributes.
+
+<details>
+<summary>Show the answer</summary>
+
+- (a) **Graph database** - the question *is* the relationships between purchases; multi-hop traversals (`MATCH`) are cheap, versus painful recursive self-joins in SQL.
+- (b) **Time-series database** (TimescaleDB, InfluxDB) - optimized for time-ordered ingest, downsampling, retention/TTL, and continuous aggregates. (Postgres + Timescale is often enough.)
+- (c) **Document database** - each record carries its own shape, so varied attributes need no schema migration. A relational table would force every item into the same columns.
+
+</details>
+
+### Scenario 5 - JSON column or real columns?
+
+You have a `product` table. Some fields are queried and filtered constantly (price, category); others are rare, vendor-specific extras. How do you model them?
+
+<details>
+<summary>Show the answer</summary>
+
+**Promote the hot, structured fields to real typed columns** - price and category get types, constraints, and indexes, and the planner can use them. **Park the rare, irregular extras in a JSON column** - flexibility without a migration per vendor quirk.
+
+It is the same judgement as normalization: structure what you rely on, leave genuinely variable data loose. Reach for a full document database only when *most* of the record is irregular.
+
+</details>
+
+## Runnable: a graph question answered in SQL
+
+Stage 5 showed graph queries in Cypher. The same "who can Ana reach by following" question runs here in plain SQLite with a `WITH RECURSIVE` walk over an edge table:
+
+<SqlRunner
+  query={`CREATE TABLE follows (src TEXT, dst TEXT);
+INSERT INTO follows VALUES
+  ('Ana','Ben'), ('Ana','Cara'), ('Ben','Cara'), ('Cara','Dee');
+
+WITH RECURSIVE reachable(person, depth) AS (
+  SELECT 'Ana', 0
+  UNION
+  SELECT follows.dst, reachable.depth + 1
+  FROM follows
+  JOIN reachable ON follows.src = reachable.person
+)
+SELECT person, MIN(depth) AS hops
+FROM reachable
+WHERE person <> 'Ana'
+GROUP BY person
+ORDER BY hops, person;`}
+  height={260}
+/>
+
+:::note Why a graph DB still earns its place
+This works, but every extra hop is another join, and traversals get awkward fast. A graph database makes multi-hop questions natural and fast - which is the whole point of choosing one.
+:::
+
+## Comprehensive quiz
+
+<Quiz
+  title="Stage 5 cumulative review"
+  questions={[
+    {
+      prompt: "A dashboard aggregates three years of sales by region. Which storage and system fit best?",
+      options: [
+        {text: "A columnar OLAP warehouse", correct: true},
+        {text: "The live row-store OLTP database", correct: false},
+        {text: "A key-value cache", correct: false},
+        {text: "A graph database", correct: false},
+      ],
+      explanation: "Columnar storage reads only the few columns an aggregate needs across many rows - ideal for OLAP. The live OLTP store is row-oriented and would compete with real traffic; caches and graphs do not aggregate history.",
+    },
+    {
+      prompt: "In a star schema, the fact table holds:",
+      options: [
+        {text: "Measurements (e.g. sale amount) plus foreign keys to dimension tables", correct: true},
+        {text: "Descriptive attributes like product name and color", correct: false},
+        {text: "Only primary keys", correct: false},
+        {text: "Cached query results", correct: false},
+      ],
+      explanation: "The fact table stores the numeric measures and FKs to dimensions; the dimensions hold the descriptive attributes you slice by. Keeping dimensions flat (star) makes the common analytic joins simple and fast.",
+    },
+    {
+      prompt: "ELT differs from ETL chiefly in that:",
+      options: [
+        {text: "Raw data is loaded first and transformed inside the warehouse with SQL", correct: true},
+        {text: "It never transforms data", correct: false},
+        {text: "It only works on graph databases", correct: false},
+        {text: "It avoids using the warehouse", correct: false},
+      ],
+      explanation: "ELT loads then transforms in-warehouse (often via dbt), exploiting cheap scalable compute and keeping raw data re-transformable. ETL transforms before loading. Both transform; the order and where it happens differ.",
+    },
+    {
+      prompt: "A document database guideline for embedding versus referencing is:",
+      options: [
+        {text: "Embed bounded data you read together; reference data that grows without limit or is accessed alone", correct: true},
+        {text: "Always embed - joins are impossible", correct: false},
+        {text: "Always reference - documents cannot nest", correct: false},
+        {text: "Embed only numbers, reference only text", correct: false},
+      ],
+      explanation: "Model by access pattern: embedding gives single-read locality for bounded, together-read data; referencing avoids unbounded, contended documents. Many document stores do support joins and nesting, so 'always' rules are wrong.",
+    },
+    {
+      prompt: "Change Data Capture (CDC) feeds downstream systems by:",
+      options: [
+        {text: "Streaming row changes from the database's write-ahead log", correct: true},
+        {text: "Polling every table with SELECT * each minute", correct: false},
+        {text: "Taking a nightly full dump only", correct: false},
+        {text: "Reading the query cache", correct: false},
+      ],
+      explanation: "Log-based CDC (e.g. Debezium) tails the WAL to emit a stream of inserts/updates/deletes in near real time, feeding warehouses and other consumers without heavy polling or waiting for nightly batches.",
+    },
+    {
+      prompt: "Why store rare, vendor-specific product attributes in a JSON column rather than new columns?",
+      options: [
+        {text: "Flexibility for irregular fields without a migration each time, while hot fields stay as typed columns", correct: true},
+        {text: "JSON is always faster to query than columns", correct: false},
+        {text: "Columns cannot store text", correct: false},
+        {text: "JSON enforces stricter types", correct: false},
+      ],
+      explanation: "JSON absorbs irregular, low-traffic fields without schema churn; the fields you filter and index on should still be real typed columns the planner can use. JSON is more flexible but generally not faster or more strictly typed than dedicated columns.",
+    },
+  ]}
+/>
+
+## Stage 5 cheatsheet
+
+<details>
+<summary>Open the Stage 5 cheatsheet</summary>
+
+**OLTP vs OLAP**
+
+- **OLTP** - many small reads/writes, row storage, live app DB. *Records what happens.*
+- **OLAP** - few big aggregates over history, columnar warehouse. *Explains what happened.*
+- Move data OLTP -> OLAP via ETL/ELT or **CDC** (log-based streaming).
+
+**Warehouse design**
+
+- **Star** = one fact table + flat dimensions (default). **Snowflake** = normalized dimensions (only when duplication hurts).
+- **Fact** = measures + FKs; **dimension** = descriptive attributes you slice by.
+- **ELT** = load raw, transform in-warehouse with SQL (**dbt**: models, DAG, tests, incremental).
+- **Lakehouse** = table formats (Iceberg, Delta) add ACID, schema evolution, time travel on object storage.
+
+**NoSQL families**
+
+- **Document** (MongoDB) - per-item shape; embed vs reference by access pattern.
+- **Key-value** (Redis) - fastest single-key lookups; caches, sessions.
+- **Column-family** (Cassandra) - huge write volume; partition + clustering keys.
+- **Graph** (Neo4j) - relationships are the question; `MATCH` traversals; ISO **GQL** (2024).
+- Modeling rule: **embed what you read together and stays bounded; reference what grows or is read alone.**
+
+**Specialized stores**
+
+- **Time-series** (TimescaleDB, InfluxDB) - time-ordered ingest, downsampling, retention/TTL, continuous aggregates.
+- **Graph in SQL** - possible via `WITH RECURSIVE`, but multi-hop gets painful; that is when a graph DB earns its place.
+
+**JSON in relational**
+
+- Promote **hot, structured** fields to typed columns (types, constraints, indexes).
+- Park **rare, irregular** fields in a JSON column; extract with `json_extract` / `->`.
+
+</details>
+
+:::tip Next up
+You can pick the right model for the data. **Stage 6 - Scaling and Advanced** takes it to many machines: replication, sharding, consistency trade-offs, and vector search for AI.
+:::

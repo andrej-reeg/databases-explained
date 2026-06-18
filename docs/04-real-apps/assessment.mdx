@@ -1,0 +1,211 @@
+---
+title: Stage 4 review
+sidebar_label: Stage 4 review
+description: Cumulative Stage 4 review - applied scenarios on access control, SQL injection, ORMs and migrations, pooling, TLS and secrets, caching, operations, and data patterns, plus a comprehensive quiz and a practitioner cheatsheet.
+sidebar_position: 9
+---
+
+import Quiz from '@site/src/components/Quiz';
+
+# Stage 4 review
+
+This page pulls Stage 4 together. **The database now lives inside a running application** - shared by many connections, exposed to untrusted input, cached, migrated, and operated. Work the scenarios before opening the answers, then take the quiz and keep the cheatsheet handy.
+
+Go back to a lesson if a scenario stumps you: [Access control](./dcl.mdx), [SQL injection](./sql-injection.mdx), [ORMs and migrations](./orms-migrations.mdx), [Connections](./connections.mdx), [Caching](./caching.mdx), [Operations](./ops.mdx), [Common data patterns](./app-patterns.mdx).
+
+## Scenarios
+
+### Scenario 1 - Spot the injection and fix it
+
+A search endpoint builds SQL like `"SELECT * FROM products WHERE name LIKE '%" + term + "%'"`. Why is it dangerous, and what is the fix?
+
+<details>
+<summary>Show the answer</summary>
+
+String concatenation lets the input **break out of the string literal** and inject SQL - e.g. `term = "'; DROP TABLE products; --"`. The attacker now writes the query.
+
+The fix is a **parameterized query** (prepared statement): send `WHERE name LIKE ?` with the value bound separately. The driver sends data and code on different channels, so input can never become SQL. For identifiers (table/column names), which cannot be parameters, use an **allowlist**. Add least-privilege so the app's role cannot drop tables anyway.
+
+</details>
+
+### Scenario 2 - Size the connections
+
+Your API runs 200 concurrent requests against a Postgres server with 8 cores. A junior sets the pool to 200 connections "to match." Why is that wrong, and what is the serverless twist?
+
+<details>
+<summary>Show the answer</summary>
+
+A database does real work on **CPU cores**, not on idle connections. Hundreds of connections cause context-switching and memory overhead, making everything slower. A pool near **(cores x a small factor)** - often tens, not hundreds - usually beats a huge one. Requests queue briefly for a connection instead of overwhelming the server.
+
+**Serverless twist**: many short-lived function instances each open their own connection and exhaust `max_connections` fast. Put an **external pooler** (PgBouncer, or a serverless driver like Neon's) between functions and the database so thousands of clients share a small pool.
+
+</details>
+
+### Scenario 3 - Migrate without downtime
+
+You must rename a column that a live, always-on service reads and writes. How do you do it without breaking running code?
+
+<details>
+<summary>Show the answer</summary>
+
+**Expand-contract** (parallel change), never a single destructive rename:
+
+1. **Expand** - add the new column; backfill it; have the app write **both** old and new.
+2. **Migrate reads** - deploy code that reads the new column.
+3. **Contract** - once nothing reads the old column, stop writing it and drop it in a later migration.
+
+Each step is backward-compatible, so old and new code run side by side during the rollout. Keep migrations reversible and test the rollback.
+
+</details>
+
+### Scenario 4 - Pick the data pattern
+
+For each need, name the pattern: (a) a feed that must page through millions of rows without skipping or repeating; (b) a "delete" that must remain auditable and recoverable; (c) a payment endpoint a client may retry on a network timeout.
+
+<details>
+<summary>Show the answer</summary>
+
+- (a) **Keyset (cursor) pagination** - page by `WHERE id > last_seen ORDER BY id LIMIT n`, not `OFFSET`. Offset re-reads and skips/duplicates rows as data shifts and gets slower deep in the list.
+- (b) **Soft delete** - set a `deleted_at` timestamp and filter it out (a partial index keeps live-row queries fast). The row survives for audit and recovery.
+- (c) **Idempotency key** - the client sends a unique key; the server records it and returns the first result on retries (`INSERT ... ON CONFLICT DO NOTHING` on the key). The charge happens once.
+
+</details>
+
+### Scenario 5 - What do you watch?
+
+The service feels slow some afternoons. Name three things to look at first and one alert worth setting.
+
+<details>
+<summary>Show the answer</summary>
+
+Look at: **slow-query reports** (`pg_stat_statements` ranked by total time), **connection-pool saturation** (are requests waiting for a connection?), and **replication lag / cache hit ratio** if you read from replicas or a cache. Check **autovacuum / bloat** if a table has degraded over time.
+
+A good alert: **p99 query latency** (or API latency) crossing a threshold - it catches the tail users actually feel, unlike an average. Alert on symptoms users feel; dashboard the rest.
+
+</details>
+
+## Comprehensive quiz
+
+<Quiz
+  title="Stage 4 cumulative review"
+  questions={[
+    {
+      prompt: "The single most reliable defense against SQL injection is:",
+      options: [
+        {text: "Parameterized queries (prepared statements)", correct: true},
+        {text: "Escaping quotes by hand", correct: false},
+        {text: "Hiding error messages", correct: false},
+        {text: "A web application firewall alone", correct: false},
+      ],
+      explanation: "Parameters separate code from data so input can never become SQL - the root fix. Manual escaping is error-prone, hidden errors do not stop the attack, and a WAF is only a partial outer layer. Combine with least-privilege for defense in depth.",
+    },
+    {
+      prompt: "Why is a smaller connection pool often faster than a very large one?",
+      options: [
+        {text: "The database does work on a fixed number of CPU cores; excess connections add contention and memory overhead", correct: true},
+        {text: "Large pools corrupt data", correct: false},
+        {text: "Connections are billed per object", correct: false},
+        {text: "SQL forbids more than 100 connections", correct: false},
+      ],
+      explanation: "Throughput is bounded by cores, not connection count. Past a point, more connections mean more context-switching and memory use, slowing everyone. A modest pool plus brief queuing usually wins.",
+    },
+    {
+      prompt: "An ORM lazily loads each order's customer in a loop over 100 orders, firing 101 queries. This is the:",
+      options: [
+        {text: "N+1 query problem - fix with a join or eager load", correct: true},
+        {text: "Deadlock problem", correct: false},
+        {text: "Phantom read problem", correct: false},
+        {text: "Connection leak problem", correct: false},
+      ],
+      explanation: "One query for the list plus one per row is the classic N+1. Fix by eager-loading / joining so related rows come back in a single query. It is a query-count issue, not a locking or connection issue.",
+    },
+    {
+      prompt: "Which setting actually verifies you are talking to the real database server over TLS (not just encrypting)?",
+      options: [
+        {text: "sslmode=verify-full", correct: true},
+        {text: "sslmode=require", correct: false},
+        {text: "sslmode=disable", correct: false},
+        {text: "sslmode=allow", correct: false},
+      ],
+      explanation: "verify-full encrypts AND validates the server certificate and hostname, blocking man-in-the-middle. require encrypts but does not verify identity; disable/allow may send credentials in clear. Pair TLS with secrets in a manager, not in code.",
+    },
+    {
+      prompt: "In cache-aside, the hardest part in practice is:",
+      options: [
+        {text: "Invalidation - keeping the cache from serving stale data after a write", correct: true},
+        {text: "Reading from the cache", correct: false},
+        {text: "Connecting to Redis", correct: false},
+        {text: "Choosing a port", correct: false},
+      ],
+      explanation: "Reads are easy; the problem is invalidating or updating the cached value when the underlying data changes, and avoiding stampedes when a hot key expires. Stale reads are the usual cache bug.",
+    },
+    {
+      prompt: "Offset pagination (LIMIT 20 OFFSET 100000) on a large, changing table is a poor choice because:",
+      options: [
+        {text: "It re-reads and discards all skipped rows (slow deep in the list) and can skip or repeat rows as data shifts", correct: true},
+        {text: "It cannot be combined with ORDER BY", correct: false},
+        {text: "It always returns wrong column types", correct: false},
+        {text: "OFFSET is not valid SQL", correct: false},
+      ],
+      explanation: "The engine must scan and throw away every skipped row, so deep pages get slow, and concurrent inserts/deletes shift the window so rows are skipped or shown twice. Keyset pagination (WHERE id > last) avoids both.",
+    },
+    {
+      prompt: "RPO and RTO for a backup strategy mean, respectively:",
+      options: [
+        {text: "How much data you can afford to lose, and how long restoring may take", correct: true},
+        {text: "How many replicas and how many tables", correct: false},
+        {text: "Read ops and write ops per second", correct: false},
+        {text: "Retention period and table owner", correct: false},
+      ],
+      explanation: "RPO (Recovery Point Objective) bounds acceptable data loss and drives backup/WAL-archiving frequency; RTO (Recovery Time Objective) bounds acceptable downtime and drives restore strategy. And a backup you have never test-restored is not a backup.",
+    },
+  ]}
+/>
+
+## Stage 4 cheatsheet
+
+<details>
+<summary>Open the Stage 4 cheatsheet</summary>
+
+**Security**
+
+- **Always parameterize**: `WHERE x = ?` with bound values - never string-concatenate input.
+- Allowlist identifiers (table/column names can't be parameters).
+- **Least privilege**: the app role can only do what the app needs (`GRANT`/`REVOKE`, roles, RLS).
+- **TLS**: `sslmode=verify-full` to encrypt *and* verify identity.
+- **Secrets** in env vars / a secret manager (Vault, cloud) with rotation - never in source.
+
+**Connections**
+
+- Pool size near `(cores x small factor)` - tens, not hundreds.
+- Serverless: front the DB with an external pooler / serverless driver.
+
+**Migrations**
+
+- **Expand-contract**: add + dual-write -> migrate reads -> drop old. Each step backward-compatible. Keep reversible.
+
+**Caching (cache-aside)**
+
+- Read cache; on miss read DB and populate. Write DB then invalidate.
+- Hard part = invalidation; guard hot keys against stampedes.
+
+**Data patterns**
+
+- **Keyset pagination**: `WHERE id > :last ORDER BY id LIMIT n` (not OFFSET).
+- **Soft delete**: `deleted_at` column + partial index; filter it out.
+- **Idempotency**: client key + `INSERT ... ON CONFLICT DO NOTHING`; return first result on retry.
+- **Audit**: change-log table (trigger or app-level).
+- **Full-text search**: Postgres `tsvector` + GIN, or SQLite FTS5; reach for a search engine at scale.
+
+**Operations**
+
+- Slow queries: `pg_stat_statements` by total time, then `EXPLAIN`.
+- Health: autovacuum/bloat, replication lag, cache hit ratio.
+- Backups: base backup + continuous WAL = PITR; set **RPO/RTO**; **test restores**.
+- Alert on user-felt symptoms (p99 latency); dashboard the rest.
+
+</details>
+
+:::tip Next up
+You can build, secure, and operate a relational database in a real app. **Stage 5 - Beyond Relational** asks the next question: when is a different kind of database the right tool?
+:::

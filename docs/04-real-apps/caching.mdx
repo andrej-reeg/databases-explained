@@ -1,0 +1,98 @@
+---
+sidebar_position: 6
+title: Caching
+sidebar_label: Caching
+description: Speed reads and shield the database with a cache - the cache-aside pattern, write strategies, TTLs, and the invalidation problem.
+---
+
+import Quiz from '@site/src/components/Quiz';
+
+# Caching
+
+The fastest query is the one you never send. A **cache** keeps hot data in fast storage (usually in-memory, often **Redis**) so repeated reads skip the database entirely - cutting latency and shielding the database from load. The cost is a second copy of the data that can go stale, so caching is mostly about *when to trust it and when to throw it away*.
+
+## Cache-aside (the default)
+
+By far the most common pattern. The application checks the cache first; on a **miss** it reads the database and populates the cache for next time:
+
+```js
+async function getProduct(id) {
+  const key = `product:${id}`;
+  const hit = await cache.get(key);
+  if (hit) return JSON.parse(hit);            // cache hit
+
+  const row = await db.query('SELECT * FROM products WHERE id = $1', [id]);
+  await cache.set(key, JSON.stringify(row), {EX: 300}); // cache for 5 min
+  return row;
+}
+```
+
+The cache only holds what has actually been requested, and the app controls exactly what is cached.
+
+## Write strategies
+
+When the underlying data changes, the cached copy must be dealt with:
+
+- **Write-through** - write to the cache and the database together, so the cache is always current (slower writes).
+- **Write-behind** - write to the cache now, flush to the database asynchronously (fast, but risks loss).
+- **Cache-aside + invalidate** - the common pairing: on a write, update the database and **delete** the cached key so the next read re-fetches.
+
+## TTL and invalidation
+
+Two levers keep a cache from serving stale data:
+
+- **TTL (time to live)** - entries expire after a set time (the `EX: 300` above). Simple, and bounds how stale data can get.
+- **Explicit invalidation** - on a write, delete or update the affected keys immediately.
+
+> "There are only two hard things in computer science: cache invalidation and naming things." Knowing *which* keys a write affects is the genuinely hard part.
+
+## What to cache, and the pitfalls
+
+Cache **hot reads** and **expensive queries** - dashboards, computed aggregates, sessions, things read far more than written. Do not cache everything; rarely-read data just wastes memory and adds a staleness risk.
+
+Watch for:
+
+- **Stale reads** - the cached copy lags the database (often acceptable; sometimes not).
+- **Thundering herd / stampede** - a popular key expires and thousands of requests hit the database at once. Mitigate with slightly randomized TTLs or a single-flight lock that lets one request refill while others wait.
+
+## Quick quiz
+
+<Quiz
+  title="Caching"
+  questions={[
+    {
+      prompt: "In the cache-aside pattern, what happens on a cache miss?",
+      options: [
+        {text: "Read from the database, then populate the cache for next time", correct: true},
+        {text: "Return an error", correct: false},
+        {text: "Write to the database", correct: false},
+        {text: "Delete the cache", correct: false},
+      ],
+      explanation: "Cache-aside: check cache, on miss read the DB and store the result so subsequent reads hit the cache.",
+    },
+    {
+      prompt: "What is the most common way to keep a cache fresh after a write (cache-aside)?",
+      options: [
+        {text: "Update the database and delete (invalidate) the affected cached key", correct: true},
+        {text: "Never write to the database", correct: false},
+        {text: "Cache the data forever", correct: false},
+        {text: "Restart the cache server", correct: false},
+      ],
+      explanation: "Write the DB, then invalidate the key so the next read re-fetches fresh data. TTLs bound staleness as a backstop.",
+    },
+    {
+      prompt: "What is a cache stampede (thundering herd)?",
+      options: [
+        {text: "A hot key expires and many requests hit the database at once to refill it", correct: true},
+        {text: "The cache server runs out of disk", correct: false},
+        {text: "Two writes happen at the same time", correct: false},
+        {text: "A query with no WHERE clause", correct: false},
+      ],
+      explanation: "When a popular entry expires simultaneously for many requests, they all miss and stampede the DB. Randomized TTLs or single-flight refills mitigate it.",
+    },
+  ]}
+/>
+
+:::tip Next up
+With the application patterns in place, the last lesson steps back to running the database itself: **[Operating a database](./ops.mdx)** - backups you can actually restore, slow-query analysis, and the metrics worth watching in production.
+:::

@@ -1,0 +1,167 @@
+---
+sidebar_position: 5
+title: Functions and procedures
+sidebar_label: Functions
+description: Package reusable logic in the database with SQL functions, procedural (PL/pgSQL) functions, and stored procedures - and know when a view is enough.
+---
+
+import Quiz from '@site/src/components/Quiz';
+
+# Functions and procedures
+
+A **function** packages logic inside the database so you can reuse it by name, with parameters, instead of repeating the same query everywhere. You create one with `CREATE FUNCTION` (part of DDL). It takes zero or more inputs and returns a value or a table.
+
+:::note PostgreSQL, not the sandbox
+Functions and procedures are a **server-side** feature, and the details differ sharply by engine. The examples here are **PostgreSQL** and do *not* run in this site's SQLite sandbox - SQLite has no `CREATE FUNCTION` in SQL (its user functions are registered through the host program). Read these as reference; run them against a real PostgreSQL when you have one.
+:::
+
+## SQL functions
+
+The simplest kind wraps a query and is written in plain SQL (`LANGUAGE sql`). Since PostgreSQL 14, the standard **`BEGIN ATOMIC`** body is preferred over the old string-quoted form - the server parses it at creation time and tracks dependencies:
+
+```sql
+CREATE FUNCTION order_total(cust_id int)
+RETURNS numeric
+LANGUAGE sql
+BEGIN ATOMIC
+  SELECT COALESCE(SUM(total), 0)
+  FROM orders
+  WHERE customer_id = cust_id;
+END;
+```
+
+Call it like any built-in function, including inside a query:
+
+```sql
+SELECT name, order_total(id) AS spent
+FROM customers;
+```
+
+`RETURNS` declares the result type - a scalar (`numeric`, `text`), or a set of rows with `RETURNS TABLE(...)`. Parameters have **modes**: `IN` passes a value in (the default), `OUT` returns one, and `INOUT` does both.
+
+## Procedural functions (PL/pgSQL)
+
+When the logic needs variables, conditionals, or loops, plain SQL is not enough. PostgreSQL's procedural language **PL/pgSQL** (and others - PL/Python, PL/Perl, PL/v8) adds real control flow and **exception handling**:
+
+```sql
+CREATE FUNCTION spend_tier(cust_id int)
+RETURNS text
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  total numeric;
+BEGIN
+  SELECT COALESCE(SUM(total), 0) INTO total
+  FROM orders WHERE customer_id = cust_id;
+
+  IF total > 50 THEN
+    RETURN 'high';
+  ELSIF total > 0 THEN
+    RETURN 'low';
+  ELSE
+    RETURN 'none';
+  END IF;
+END;
+$$;
+```
+
+The `$$` marks a quoted code block. Unlike an SQL function, a PL/pgSQL body runs statement by statement and can branch, loop, and catch errors.
+
+## Functions vs stored procedures
+
+PostgreSQL 11 added true **stored procedures** (`CREATE PROCEDURE`, invoked with `CALL`). The practical difference in 2026:
+
+- A **function** returns a value and is used *inside* a query (`SELECT f(x)`). It cannot commit or roll back.
+- A **procedure** is called on its own with `CALL`, returns nothing by default, and **can manage transactions** - `COMMIT` and `ROLLBACK` inside it - which makes it the right tool for multi-step batch jobs.
+
+```sql
+CALL archive_old_orders(DATE '2025-01-01');
+```
+
+For a quick, throwaway block with no name, use **`DO`** - an anonymous block that runs once and cannot be called again:
+
+```sql
+DO $$
+BEGIN
+  RAISE NOTICE 'runs once, has no name';
+END;
+$$;
+```
+
+## View, SQL function, or procedural function?
+
+All three let you package and reuse query logic. Pick by what the job needs - parameters, control flow, or just a saved query.
+
+| | View | SQL function | Procedural function |
+|---|---|---|---|
+| Created with | `CREATE VIEW` | `CREATE FUNCTION` | `CREATE FUNCTION` |
+| Body | one `SELECT` | one or more SQL statements | full procedural code |
+| Parameters | none | yes | yes |
+| Control flow | none | none | loops, `IF`/`ELSE` |
+| Error handling | none | none | yes |
+| Logic | SQL | SQL | procedural |
+| Use it when | a reusable, always-live query shape | reusable logic that takes **parameters** | logic too complex for SQL - branching, calculations, exceptions |
+
+Rule of thumb: reach for a **view** when you just need a named, parameter-free query; an **SQL function** when the same logic needs an argument; a **procedural function** only when you genuinely need branching, loops, or error handling.
+
+## Quick quiz
+
+<Quiz
+  title="Functions and procedures"
+  questions={[
+    {
+      prompt: "What does the RETURNS keyword do in a function definition?",
+      options: [
+        {text: "Declares the function's return type", correct: true},
+        {text: "Lists the function's parameters", correct: false},
+        {text: "Immediately returns a value to the caller", correct: false},
+        {text: "Starts a transaction", correct: false},
+      ],
+      explanation: "RETURNS declares the type the function yields (e.g. numeric, text, or TABLE(...)). Returning an actual value at runtime is done with RETURN inside the body.",
+    },
+    {
+      prompt: "Which parameter mode passes a value INTO a function from the caller?",
+      options: [
+        {text: "IN", correct: true},
+        {text: "OUT", correct: false},
+        {text: "INOUT", correct: false},
+        {text: "NONE", correct: false},
+      ],
+      explanation: "IN is an input parameter (and the default). OUT returns a value, INOUT does both.",
+    },
+    {
+      prompt: "Which statement describes a VIEW (and not a function)?",
+      options: [
+        {text: "It takes no input parameters and is just a saved SELECT", correct: true},
+        {text: "It runs statement by statement with loops", correct: false},
+        {text: "It can modify several tables", correct: false},
+        {text: "It handles exceptions", correct: false},
+      ],
+      explanation: "A view is a parameter-free saved query (one SELECT). Parameters, loops, and error handling belong to functions/procedures.",
+    },
+    {
+      prompt: "You need logic with branching and a loop, plus error handling. Which fits?",
+      options: [
+        {text: "A procedural (PL/pgSQL) function", correct: true},
+        {text: "A view", correct: false},
+        {text: "A plain SQL function", correct: false},
+        {text: "An index", correct: false},
+      ],
+      explanation: "Control flow and exception handling require a procedural language like PL/pgSQL. Views and SQL functions are SQL-only, no control flow.",
+    },
+    {
+      prompt: "What can a stored PROCEDURE do that a FUNCTION cannot?",
+      options: [
+        {text: "Manage transactions - COMMIT and ROLLBACK inside it", correct: true},
+        {text: "Be used inside a SELECT", correct: false},
+        {text: "Return a value", correct: false},
+        {text: "Accept parameters", correct: false},
+      ],
+      explanation: "Procedures (called with CALL) can control transactions; functions cannot. Functions, by contrast, return a value and can be used inside queries.",
+    },
+  ]}
+/>
+
+:::tip Next up
+You can now design a sound schema and package its logic. **Stage 3 - Correct and Fast** makes it perform: indexes, query plans, and transactions.
+:::

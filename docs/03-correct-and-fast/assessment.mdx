@@ -1,0 +1,231 @@
+---
+title: Stage 3 review
+sidebar_label: Stage 3 review
+description: Cumulative Stage 3 review - read a query plan, design the right index, name isolation anomalies, reason about deadlocks, plus a runnable SCAN-to-SEARCH demo, a comprehensive quiz, and a performance cheatsheet.
+sidebar_position: 4
+---
+
+import SqlRunner from '@site/src/components/SqlRunner';
+import Quiz from '@site/src/components/Quiz';
+
+# Stage 3 review
+
+This page pulls Stage 3 together. **Two skills decide whether a database is production-ready**: making queries fast (plans and indexes) and keeping them correct under concurrency (transactions and isolation). Work the challenges before opening the answers, then take the quiz and keep the cheatsheet handy.
+
+Go back to the lesson if a challenge stumps you: [Indexes and query plans](./indexes.mdx), [Transactions and isolation](./transactions.mdx).
+
+## Challenges
+
+### Challenge 1 - Read the plan
+
+A query against a 100,000-row `events` table runs `EXPLAIN QUERY PLAN` and reports `SCAN events`. After you add an index on the filtered column, it reports `SEARCH events USING INDEX ...`. What changed, and why is the second faster?
+
+<details>
+<summary>Show the answer</summary>
+
+**SCAN** means a full-table scan: the engine reads every row to find matches - work grows with table size. **SEARCH USING INDEX** means it jumped straight to the matching rows through the index's sorted structure - roughly `log(n)` instead of `n`.
+
+The index turned a linear read of 100,000 rows into a handful of lookups. That is the whole point of an index: trade a little write cost and disk for a large read speedup on the columns you filter, join, and sort on.
+
+</details>
+
+### Challenge 2 - Design the index
+
+A query filters `WHERE status = 'open' AND created_at > ?` and sorts `ORDER BY created_at`. Which single index helps most, and what is the column order? Would an index on `status` alone be enough?
+
+<details>
+<summary>Show the answer</summary>
+
+A **composite index** `(status, created_at)` - equality column first, then the range/sort column. The **left-prefix rule**: the index is usable for `status =`, then walks `created_at` in order, so it serves the filter *and* the `ORDER BY` without a separate sort.
+
+An index on `status` alone helps the equality but still leaves a sort and a range scan on `created_at`. Putting `created_at` first would break the `status =` lookup. Order matters: **equality, then range/sort**.
+
+A **covering index** `(status, created_at)` that also INCLUDEs the selected columns could answer the query from the index alone - no table fetch at all.
+
+</details>
+
+### Challenge 3 - Name the anomaly
+
+For each scenario, name the read anomaly and the lowest isolation level that prevents it:
+
+1. A transaction reads a row another transaction has changed but not yet committed.
+2. A transaction reads the same row twice and gets two different values.
+3. A transaction runs the same `WHERE` twice and the second time more rows match.
+
+<details>
+<summary>Show the answer</summary>
+
+1. **Dirty read** - prevented by **Read Committed** (and above). You never see uncommitted data.
+2. **Non-repeatable read** - prevented by **Repeatable Read** (and above). A row you read stays stable for the transaction.
+3. **Phantom read** - prevented by **Serializable**. The *set* of rows matching a predicate stays stable, not just individual rows.
+
+Higher isolation = fewer anomalies but more contention. Most apps run **Read Committed** and reach for **Serializable** only where correctness demands it.
+
+</details>
+
+### Challenge 4 - The deadlock
+
+Two transactions each update rows A and B, but in opposite order, and freeze. What happened, how does the database resolve it, and what must your application do?
+
+<details>
+<summary>Show the answer</summary>
+
+A **deadlock**: T1 holds A and waits for B; T2 holds B and waits for A. Neither can proceed.
+
+The database **detects the cycle and aborts one transaction** (the victim), rolling it back so the other completes. Your application must **catch the serialization/deadlock error and retry** the victim - ideally with exponential backoff. Prevention: have all transactions **acquire locks in a consistent order** (always A before B), and keep transactions short.
+
+</details>
+
+## Runnable: watch the plan flip from SCAN to SEARCH
+
+Build a table, check the plan (a full `SCAN`), add an index, and check again (now a `SEARCH USING INDEX`). Run it as written, then read the two plan lines.
+
+<SqlRunner
+  query={`CREATE TABLE big (id INTEGER PRIMARY KEY, cat TEXT, val INTEGER);
+
+WITH RECURSIVE seq(n) AS (
+  SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 5000
+)
+INSERT INTO big (id, cat, val)
+SELECT n, 'c' || (n % 50), n FROM seq;
+
+-- Before an index: a full table scan
+EXPLAIN QUERY PLAN SELECT * FROM big WHERE cat = 'c7';`}
+  height={220}
+/>
+
+Now add the index and re-check the plan - it should change to `SEARCH big USING INDEX`:
+
+<SqlRunner
+  query={`CREATE INDEX idx_big_cat ON big(cat);
+EXPLAIN QUERY PLAN SELECT * FROM big WHERE cat = 'c7';`}
+  height={160}
+/>
+
+:::note Why the flip happens
+Without the index, the only plan is to read all 5,000 rows. With `idx_big_cat`, the engine seeks directly to the `cat = 'c7'` entries. Same query, very different work.
+:::
+
+## Comprehensive quiz
+
+<Quiz
+  title="Stage 3 cumulative review"
+  questions={[
+    {
+      prompt: "EXPLAIN QUERY PLAN reports SCAN on a large table for a selective WHERE. What does that tell you?",
+      options: [
+        {text: "No usable index exists for that filter, so every row is read", correct: true},
+        {text: "The query is already optimal", correct: false},
+        {text: "The table is locked", correct: false},
+        {text: "The result set is empty", correct: false},
+      ],
+      explanation: "SCAN means a full-table read - the planner found no index it could use for the filter. Adding the right index turns it into a SEARCH. SCAN says nothing about locks or result size.",
+    },
+    {
+      prompt: "A query does WHERE a = ? AND b > ? ORDER BY b. Which composite index serves it best?",
+      options: [
+        {text: "(a, b) - equality column first, then the range/sort column", correct: true},
+        {text: "(b, a) - range column first", correct: false},
+        {text: "Two separate single-column indexes on a and b", correct: false},
+        {text: "(b) alone", correct: false},
+      ],
+      explanation: "Left-prefix rule: put the equality column first so the index seeks on a, then reads b in order - serving both the range and the ORDER BY. (b, a) breaks the a-equality seek; two single indexes rarely combine as well as one composite.",
+    },
+    {
+      prompt: "An index on a column where 90% of rows share the same value (low selectivity) barely helps a query filtering for that common value. Why?",
+      options: [
+        {text: "The index would still point at most of the table, so a scan is about as cheap", correct: true},
+        {text: "SQLite ignores all indexes on text columns", correct: false},
+        {text: "Indexes only work on primary keys", correct: false},
+        {text: "Low-selectivity columns cannot be indexed", correct: false},
+      ],
+      explanation: "Selectivity is what makes an index pay: if a value matches most rows, following the index plus fetching the rows costs about the same as scanning. Indexes shine on values that match a small fraction of rows.",
+    },
+    {
+      prompt: "Which isolation level prevents non-repeatable reads but may still allow phantoms?",
+      options: [
+        {text: "Repeatable Read", correct: true},
+        {text: "Read Uncommitted", correct: false},
+        {text: "Read Committed", correct: false},
+        {text: "Serializable", correct: false},
+      ],
+      explanation: "Repeatable Read keeps individual rows you have read stable, but new rows can still appear for a predicate (phantoms). Read Committed allows non-repeatable reads; Serializable prevents phantoms too.",
+    },
+    {
+      prompt: "What is the practical difference between locking and MVCC for handling concurrent reads and writes?",
+      options: [
+        {text: "MVCC gives readers a consistent snapshot so they do not block writers; locking makes them wait", correct: true},
+        {text: "MVCC is slower in every case", correct: false},
+        {text: "Locking guarantees no deadlocks", correct: false},
+        {text: "They are two names for the same mechanism", correct: false},
+      ],
+      explanation: "MVCC versions rows so a reader sees a snapshot and need not block writers (and vice versa). Pure locking serializes access by making transactions wait. Locking does not prevent deadlocks - opposite lock orders still cycle.",
+    },
+    {
+      prompt: "Your app occasionally gets a 'could not serialize / deadlock detected' error under load. The right response is to:",
+      options: [
+        {text: "Catch it and retry the transaction, ideally with backoff", correct: true},
+        {text: "Lower the isolation level until it stops", correct: false},
+        {text: "Disable indexes on the affected tables", correct: false},
+        {text: "Ignore it; the data is fine", correct: false},
+      ],
+      explanation: "Serialization/deadlock errors are expected under contention - the database aborted one transaction to break a cycle. Retrying (with backoff, and consistent lock ordering to reduce them) is correct. Lowering isolation can reintroduce anomalies you needed to prevent.",
+    },
+    {
+      prompt: "A SAVEPOINT inside a transaction lets you:",
+      options: [
+        {text: "Roll back part of the work without aborting the whole transaction", correct: true},
+        {text: "Commit half the transaction permanently", correct: false},
+        {text: "Skip the WAL", correct: false},
+        {text: "Bypass isolation rules", correct: false},
+      ],
+      explanation: "ROLLBACK TO a savepoint undoes work back to that point while the transaction continues - useful for trying a step and backing out on failure. It does not commit anything early or change durability/isolation.",
+    },
+  ]}
+/>
+
+## Stage 3 cheatsheet
+
+<details>
+<summary>Open the Stage 3 cheatsheet</summary>
+
+**Reading a query plan**
+
+- `EXPLAIN QUERY PLAN <query>` (SQLite) / `EXPLAIN [ANALYZE] <query>` (Postgres).
+- **SCAN** = full-table read (work grows with rows) - usually a missing index.
+- **SEARCH USING INDEX** = index seek (roughly `log n`) - what you want for selective filters.
+- Postgres `EXPLAIN ANALYZE` shows **estimated vs actual** rows; a big gap means stale stats (run `ANALYZE`).
+
+**Index design rules**
+
+- Index the columns you **filter, join, and sort** on - not every column.
+- **Composite order**: equality columns first, then range/sort (left-prefix rule).
+- **Selectivity** decides payoff: low-selectivity (mostly-equal) columns barely help.
+- **Covering index** answers a query from the index alone (no table fetch).
+- **Partial index** (`CREATE INDEX ... WHERE cond`) indexes only the rows you query.
+- Each index costs write time and space.
+
+**Isolation levels and anomalies**
+
+| Level | Dirty read | Non-repeatable | Phantom |
+|---|---|---|---|
+| Read Uncommitted | possible | possible | possible |
+| Read Committed | no | possible | possible |
+| Repeatable Read | no | no | possible |
+| Serializable | no | no | no |
+
+- **Dirty read** - see uncommitted data. **Non-repeatable** - same row, two values. **Phantom** - same predicate, new rows.
+- Default to **Read Committed**; use **Serializable** only where correctness needs it.
+
+**Concurrency control**
+
+- **Locking** - transactions wait their turn. **MVCC** - readers get a snapshot, no blocking.
+- **Deadlock** - opposite lock orders cycle; DB aborts a victim. Fix: consistent lock order, short transactions, **retry with backoff**.
+- **Savepoint** - `SAVEPOINT s` / `ROLLBACK TO s` for partial rollback.
+- **WAL** - writes go to a log first for durability and crash recovery.
+
+</details>
+
+:::tip Next up
+Fast and correct in one database. **Stage 4 - Databases in Real Apps** connects it to the application: access control, ORMs, pooling, security, caching, and operations.
+:::

@@ -1,0 +1,153 @@
+---
+sidebar_position: 5
+title: Connections and serverless
+sidebar_label: Connections & hosting
+description: Why database connections are expensive, how connection pooling fixes it, the serverless connection problem, and where databases run in 2026.
+---
+
+import Quiz from '@site/src/components/Quiz';
+
+# Connections and serverless
+
+A query is cheap; the **connection** it rides on is not. Getting this wrong is a common reason an app that worked in testing falls over under real load.
+
+## Why connections are expensive
+
+Opening a database connection means a TCP handshake, authentication, and - in PostgreSQL - the server starting a **whole backend process** for that connection. That costs time and memory, and the server caps how many can exist at once (`max_connections`, often a few hundred). If every web request opens its own connection, a traffic spike exhausts the limit and new requests fail.
+
+## Connection pooling
+
+A **connection pool** keeps a set of connections open and lends them out: a request borrows one, runs its queries, and returns it. No per-request handshake, and the number of real connections stays bounded.
+
+The counter-intuitive part is **sizing**: bigger is not better. Each connection consumes server memory, and beyond roughly the number of CPU cores extra connections mostly add contention. A **small** pool (often single or low double digits per app instance) usually gives higher throughput than a large one. The failure mode to know is **pool exhaustion** - all connections busy, so requests queue and time out; the cause is usually a slow query or a leaked connection that was never returned.
+
+Dedicated poolers like **PgBouncer** and **pgcat** sit in front of PostgreSQL and multiplex many clients onto few real connections.
+
+## The serverless connection problem
+
+Serverless functions (AWS Lambda, edge functions) scale to **many short-lived instances**, each wanting its own connection - which blows straight past `max_connections`. The fixes:
+
+- an **external pooler** (PgBouncer, or the platform's built-in pooler) between functions and the database;
+- **HTTP / serverless drivers** that send queries over HTTP instead of a long-lived TCP connection - e.g. Neon's serverless driver, or data-API layers.
+
+## Where databases run in 2026
+
+Stage 0 noted the shift to **managed and serverless** databases; here is the lay of the land:
+
+- **Serverless Postgres** - **Neon** and **Supabase**: scale compute to zero when idle, branch a database like git, bill by usage.
+- **PlanetScale** (MySQL/Vitess) - horizontal scale and safe online schema changes.
+- **Amazon Aurora** - including **Aurora Serverless v2**, which scales capacity automatically.
+- **Turso** (libSQL, a SQLite fork) - databases at the edge, close to users.
+- **Distributed SQL** - **CockroachDB** and **TiDB** offer serverless tiers too.
+
+The common thread is **separating storage from compute** and **paying for what you use** - which is also why "relational databases are expensive to run" no longer holds.
+
+## Securing the connection: TLS
+
+A connection carries credentials and data across a network. Without encryption, anyone on the path can read or tamper with it. **Use TLS for every connection that leaves the host** - and in the cloud, that is all of them.
+
+PostgreSQL sets the policy through the `sslmode` parameter in the connection string:
+
+```text
+# weak - encrypts if offered, but does NOT check the server's identity
+postgresql://app@db.example.com/shop?sslmode=require
+
+# strong - encrypts AND verifies the certificate chain + hostname
+postgresql://app@db.example.com/shop?sslmode=verify-full
+```
+
+:::warning `require` is not enough on its own
+`sslmode=require` encrypts traffic but skips certificate validation, so it does **not** stop a man-in-the-middle who presents any certificate. **`verify-full`** checks the chain *and* the hostname - use it whenever you can supply the CA root. Managed providers publish their CA bundle for exactly this.
+:::
+
+## Managing secrets
+
+The connection above contains a password. **Never hard-code credentials or commit them to git.** A leaked repo is one of the most common breach causes.
+
+The progression, weakest to strongest:
+
+- **Environment variables** - the baseline. Code reads `process.env.DATABASE_URL`; the value is injected at deploy time, never written in source.
+
+  ```js
+  // config is supplied by the environment, not the codebase
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  ```
+
+- **A secret manager** - HashiCorp **Vault**, AWS Secrets Manager, GCP Secret Manager, or Azure Key Vault. The app fetches the credential at startup (or per-request) over an authenticated channel, so the secret never sits in plaintext env files or CI logs.
+- **Short-lived, rotated credentials.** The strongest option: the secret manager issues a credential that expires in minutes or hours and **rotates automatically**. A stolen credential is useless soon after. Some platforms go further with IAM-based auth, where the database trusts a cloud identity and no static password exists at all.
+
+:::tip Rotation is the point
+The reason to centralise secrets is not tidiness - it is **rotation**. When a credential leaks (or an employee leaves), you want to revoke and reissue everywhere in one action, without a redeploy. Build for that from the start.
+:::
+
+## Quick quiz
+
+<Quiz
+  title="Connections and serverless"
+  questions={[
+    {
+      prompt: "Why use a connection pool?",
+      options: [
+        {text: "Opening a connection is expensive; a pool reuses a bounded set instead of opening one per request", correct: true},
+        {text: "It makes individual queries run faster", correct: false},
+        {text: "It encrypts the connection", correct: false},
+        {text: "It removes the need for indexes", correct: false},
+      ],
+      explanation: "Connections cost a handshake, auth, and server memory, and are capped. A pool reuses open connections, avoiding per-request setup and exhaustion.",
+    },
+    {
+      prompt: "What pool size tends to give the best throughput?",
+      options: [
+        {text: "A small pool - often near the number of CPU cores", correct: true},
+        {text: "As large as max_connections allows", correct: false},
+        {text: "One connection per concurrent user", correct: false},
+        {text: "Exactly 1000, always", correct: false},
+      ],
+      explanation: "Beyond ~core count, extra connections add memory pressure and contention. Small pools usually outperform large ones.",
+    },
+    {
+      prompt: "Why do serverless functions strain a traditional database?",
+      options: [
+        {text: "Many short-lived instances each open connections, exhausting max_connections", correct: true},
+        {text: "They cannot run SQL at all", correct: false},
+        {text: "They require denormalized schemas", correct: false},
+        {text: "They disable indexes", correct: false},
+      ],
+      explanation: "Serverless scales horizontally to many instances, each wanting connections. Use an external pooler or an HTTP/serverless driver.",
+    },
+    {
+      prompt: "What do modern managed/serverless databases (Neon, Aurora Serverless) have in common?",
+      options: [
+        {text: "They separate storage from compute and bill by usage, scaling down when idle", correct: true},
+        {text: "They only support NoSQL", correct: false},
+        {text: "They cannot be queried with SQL", correct: false},
+        {text: "They require you to manage the servers yourself", correct: false},
+      ],
+      explanation: "The pattern is decoupled storage/compute, scale-to-zero, and usage billing - someone else operates the servers.",
+    },
+    {
+      prompt: "Which sslmode actually protects against a man-in-the-middle?",
+      options: [
+        {text: "verify-full - it encrypts and validates the certificate chain and hostname", correct: true},
+        {text: "require - encryption alone is enough", correct: false},
+        {text: "disable - TLS is not needed inside a cloud network", correct: false},
+        {text: "Any mode; they are equivalent", correct: false},
+      ],
+      explanation: "require encrypts but skips certificate validation, so an attacker can present any cert. verify-full checks the chain and hostname.",
+    },
+    {
+      prompt: "What is the main reason to keep database credentials in a secret manager rather than a config file?",
+      options: [
+        {text: "You can revoke and rotate them everywhere in one action when they leak", correct: true},
+        {text: "It makes queries run faster", correct: false},
+        {text: "It removes the need for TLS", correct: false},
+        {text: "It lets you commit them safely to git", correct: false},
+      ],
+      explanation: "Centralising secrets enables rotation: revoke and reissue without a redeploy. Never commit credentials to source control.",
+    },
+  ]}
+/>
+
+:::tip Next up
+**[Caching](./caching.mdx)** - shield the database and speed reads with cache-aside, TTLs, and the invalidation problem.
+:::

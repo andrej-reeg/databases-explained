@@ -1,0 +1,85 @@
+---
+sidebar_position: 3
+title: Aggregating
+description: Collapse many rows into summaries with COUNT, SUM, AVG, GROUP BY and HAVING.
+---
+
+import SqlRunner from '@site/src/components/SqlRunner';
+
+# Aggregating rows
+
+So far each query returned rows much like the ones stored. Aggregation is different: it **collapses many rows into one summary number**. This is where raw data starts turning into information - "how many orders," "total revenue," "average order value."
+
+The aggregate functions you will use constantly are `COUNT`, `SUM`, `AVG`, `MIN`, and `MAX`. On their own they fold a whole table into a single row:
+
+<SqlRunner query={`SELECT COUNT(*), SUM(total), AVG(total)
+FROM orders;`} />
+
+That answers "across all orders, how many, what total, what average." One row out, no matter how many rows in.
+
+## GROUP BY: one summary per group
+
+Usually you do not want one number for the whole table - you want one number *per customer*, *per country*, *per month*. `GROUP BY` splits the rows into groups and produces one summary row for each.
+
+<SqlRunner query={`SELECT customer_id, COUNT(*) AS order_count, SUM(total) AS spent
+FROM orders
+GROUP BY customer_id;`} />
+
+The rule that confuses beginners: every column in `SELECT` must either be in the `GROUP BY` or be wrapped in an aggregate. That is not pedantry - if you grouped by `customer_id`, the database has many `total` values per group and no way to show just one, so you must tell it how to combine them (`SUM`, `AVG`, ...). `AS` simply renames a column in the output.
+
+## WHERE versus HAVING
+
+Both filter, but at different moments - and the [evaluation order](./querying.mdx#the-order-sql-really-runs-in) from the last lesson tells you which to reach for. `WHERE` filters **rows before grouping**. `HAVING` filters **groups after the aggregate is computed**.
+
+<SqlRunner
+  query={`SELECT customer_id, SUM(total) AS spent
+FROM orders
+WHERE created_at >= '2026-01-01'   -- drop old rows first
+GROUP BY customer_id
+HAVING SUM(total) > 50;            -- then keep only big-spending groups`}
+  height={140}
+/>
+
+You cannot put `SUM(total) > 50` in `WHERE`, because when `WHERE` runs the sum does not exist yet. That single fact is why `HAVING` has to exist at all.
+
+## Exercise
+
+Worked, then half-filled, then yours. Use the sandbox.
+
+<SqlRunner query={`SELECT country, COUNT(*) AS customers
+FROM customers
+GROUP BY country;`} />
+
+**1. Worked.** Count how many customers are in each country (the query above).
+
+**2. Finish it.** For each customer, show their total spend. Fill the blanks, then run - the box checks your result.
+
+<SqlRunner
+  query={`SELECT customer_id, ____(total) AS spent
+FROM orders
+____ ____ customer_id;`}
+  solution={`SELECT customer_id, SUM(total) AS spent FROM orders GROUP BY customer_id;`}
+/>
+
+**3. Write it yourself.** Show only the customers whose total spend is above 30.00, with that total. Run it to check your answer.
+
+<SqlRunner
+  query={`-- Write your query here, then press Run\n`}
+  solution={`SELECT customer_id, SUM(total) AS spent FROM orders GROUP BY customer_id HAVING SUM(total) > 30.00;`}
+/>
+
+<details>
+<summary>Show answers</summary>
+
+**2.** `SELECT customer_id, SUM(total) AS spent FROM orders GROUP BY customer_id;`
+
+**3.**
+
+```sql
+SELECT customer_id, SUM(total) AS spent
+FROM orders
+GROUP BY customer_id
+HAVING SUM(total) > 30.00;
+```
+
+</details>

@@ -1,0 +1,174 @@
+---
+sidebar_position: 8
+title: Data types and dates
+sidebar_label: Types & dates
+description: The core SQL data types, casting between them, and handling dates and times - including the time-zone trap that bites everyone.
+---
+
+import SqlRunner from '@site/src/components/SqlRunner';
+import Quiz from '@site/src/components/Quiz';
+
+# Data types and dates
+
+Every column has a **type** that decides what it can hold and how it sorts and compares. The set is small, but **dates and times** are where real bugs live, so they get the bulk of this lesson.
+
+## The core types
+
+Across SQL databases you will meet a handful of families:
+
+- **Integers** - whole numbers (`INTEGER`, `BIGINT`).
+- **Decimals / reals** - fractions. Use exact **`DECIMAL`/`NUMERIC`** for money (never floating-point `REAL`, which rounds: `0.1 + 0.2` is not `0.3`).
+- **Text** - strings (`TEXT`, `VARCHAR(n)`).
+- **Boolean** - true/false.
+- **NULL** - "unknown / missing," its own thing (see [the NULL section](./querying.mdx#working-with-null)).
+
+`typeof()` shows SQLite's view of a value:
+
+<SqlRunner query={`SELECT typeof(42), typeof(4.5), typeof('hi'), typeof(NULL);`} height={90} />
+
+:::note Strict vs dynamic typing
+SQLite uses **type affinity**: a column has a preferred type but will store others, so it is forgiving (and occasionally surprising). PostgreSQL and most engines are **strictly typed** - put text in an integer column and it errors. Newer SQLite also offers `STRICT` tables. Lean on real types; do not rely on a column quietly accepting the wrong one.
+:::
+
+## Casting
+
+Convert a value's type with **`CAST(value AS type)`**:
+
+<SqlRunner query={`SELECT CAST('42' AS INTEGER) + 1,
+       CAST(9.9 AS INTEGER);`} height={90} />
+
+## String functions
+
+Text columns come with a toolkit for reshaping and searching strings - the everyday work of cleaning data and building labels. The core set is small and portable:
+
+- **`UPPER(s)` / `LOWER(s)`** - change case.
+- **`LENGTH(s)`** - number of characters.
+- **`SUBSTR(s, start, len)`** - a slice; positions are **1-based**.
+- **`s1 || s2`** - **concatenate** (glue strings together).
+- **`TRIM(s)`** - strip leading and trailing spaces (`LTRIM`/`RTRIM` do one side).
+- **`REPLACE(s, find, with)`** - swap every occurrence of one substring for another.
+
+<SqlRunner
+  query={`SELECT name,
+       UPPER(name)                    AS shout,
+       LENGTH(name)                   AS len,
+       SUBSTR(name, 1, 2)             AS first_two,
+       name || ' (' || country || ')' AS label
+FROM customers
+WHERE country IS NOT NULL;`}
+  height={180}
+/>
+
+**`LIKE`** searches by pattern (you met it in [WHERE](./querying.mdx#ranges-lists-and-patterns)): `%` matches any run of characters, `_` matches exactly one. Use it to find rows by a fragment of text:
+
+<SqlRunner
+  query={`SELECT name FROM products
+WHERE name LIKE '%shoe%';`}
+  height={90}
+/>
+
+:::note SQLite LIKE is case-insensitive for ASCII
+`'shoe' LIKE 'SHOE'` is true in SQLite by default. Other engines differ - PostgreSQL's `LIKE` is case-sensitive and offers `ILIKE` for the insensitive version. Normalise with `LOWER()` when you need predictable behaviour across engines.
+:::
+
+### Exercise: clean and label
+
+**Finish it.** For each product, show its name in lower case, its name length, and a code built as the **upper-cased first three letters**. Fill the blanks, then run - the box checks your result.
+
+<SqlRunner
+  query={`SELECT ____(name)        AS lower_name,
+       LENGTH(name)      AS len,
+       UPPER(____(name, 1, 3)) AS code
+FROM products;`}
+  solution={`SELECT LOWER(name) AS lower_name, LENGTH(name) AS len, UPPER(SUBSTR(name, 1, 3)) AS code FROM products;`}
+/>
+
+<details>
+<summary>Show answer</summary>
+
+```sql
+SELECT LOWER(name)             AS lower_name,
+       LENGTH(name)            AS len,
+       UPPER(SUBSTR(name, 1, 3)) AS code
+FROM products;
+```
+
+`SUBSTR(name, 1, 3)` takes three characters from position 1; `UPPER` then capitalises them.
+
+</details>
+
+## Dates and times
+
+There is no single "date" answer: PostgreSQL has rich `date`, `timestamp`, and `timestamptz` types; SQLite has **no dedicated date type** and stores dates as **ISO-8601 text** (`'2026-02-20'`) or numbers, with functions to work on them. Storing as ISO text is the portable habit - it sorts correctly as text.
+
+Key SQLite date functions (Postgres has equivalents like `now()`, `EXTRACT`, `AGE`):
+
+<SqlRunner
+  query={`SELECT date('2026-02-20', '+7 days')        AS week_later,
+       strftime('%Y-%m', '2026-02-20')         AS year_month,
+       julianday('2026-03-01') - julianday('2026-02-20') AS days_between;`}
+  height={120}
+/>
+
+`date()`/`datetime()` parse and shift dates, `strftime()` formats and extracts parts (great for "group by month"), and `julianday()` turns dates into numbers so you can subtract them.
+
+### The time-zone trap
+
+The single most common date bug: mixing time zones. A bare timestamp like `2026-02-20 09:00` has no zone - is that London or Tokyo? Two rules save you:
+
+1. **Store in UTC.** Use a zone-aware type (`timestamptz` in PostgreSQL) and keep everything in UTC internally.
+2. **Convert only at the edges** - to the user's local zone when displaying, back to UTC when accepting input.
+
+A timestamp without a zone (`timestamp` *without* time zone, or a naive string) is a latent bug the moment two regions touch your data.
+
+## Quick quiz
+
+<Quiz
+  title="Types and dates"
+  questions={[
+    {
+      prompt: "Which type should store a money amount?",
+      options: [
+        {text: "DECIMAL / NUMERIC (exact)", correct: true},
+        {text: "REAL / floating point", correct: false},
+        {text: "TEXT", correct: false},
+        {text: "INTEGER only", correct: false},
+      ],
+      explanation: "Floating-point rounds (0.1 + 0.2 != 0.3), which corrupts money. DECIMAL/NUMERIC is exact.",
+    },
+    {
+      prompt: "How does SQLite store dates, lacking a dedicated date type?",
+      options: [
+        {text: "As ISO-8601 text (or numbers), with functions to operate on them", correct: true},
+        {text: "As a binary date object", correct: false},
+        {text: "It cannot store dates", correct: false},
+        {text: "Only as Unix timestamps", correct: false},
+      ],
+      explanation: "SQLite stores dates as ISO text/numbers and provides date(), strftime(), julianday(), etc. ISO text also sorts correctly.",
+    },
+    {
+      prompt: "What is the golden rule for time zones?",
+      options: [
+        {text: "Store in UTC; convert to local only at display/input edges", correct: true},
+        {text: "Store each row in the server's local zone", correct: false},
+        {text: "Ignore zones - timestamps are universal", correct: false},
+        {text: "Store the user's zone in every timestamp string", correct: false},
+      ],
+      explanation: "Keep everything UTC internally (timestamptz) and convert at the edges. Naive, zone-less timestamps are the classic source of bugs.",
+    },
+    {
+      prompt: "What does CAST('42' AS INTEGER) + 1 produce?",
+      options: [
+        {text: "43", correct: true},
+        {text: "'421'", correct: false},
+        {text: "An error", correct: false},
+        {text: "NULL", correct: false},
+      ],
+      explanation: "CAST converts the text '42' to the integer 42, so + 1 gives 43.",
+    },
+  ]}
+/>
+
+:::tip Next up
+**[Changing data - DML and TCL](./dml-and-tcl.mdx)** - the write statements and the transactions that control them.
+:::

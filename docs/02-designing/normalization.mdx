@@ -1,0 +1,133 @@
+---
+sidebar_position: 4
+title: Normalization
+sidebar_label: Normalization
+description: Organize columns so every fact lives in exactly one place - learn 1NF, 2NF, and 3NF by watching a duplicated table break, then when to denormalize on purpose.
+---
+
+import SqlRunner from '@site/src/components/SqlRunner';
+import Quiz from '@site/src/components/Quiz';
+
+# Normalization
+
+**Normalization** is arranging columns across tables so every fact is stored in exactly **one place**. It is not bureaucracy - it is what stops your data from quietly contradicting itself. The fastest way to understand it is to build a bad table and watch it break.
+
+## One big table goes wrong
+
+Imagine cramming orders, customers, and products into a single wide table - the customer's email repeated on every one of their order rows:
+
+| order_id | customer_name | customer_email | product | price |
+|---|---|---|---|---|
+| 101 | Ana | ana@old.test | Running shoe | 40.00 |
+| 102 | Ana | ana@old.test | Trail socks | 12.50 |
+| 103 | Ben | ben@x.test | Water bottle | 8.00 |
+
+Ana's email lives in two rows already. That duplication causes three classic **anomalies**.
+
+**Update anomaly.** Change one fact, chase it through many rows. Update Ana's email and you must hit *every* order she ever placed - miss one and the data now disagrees with itself:
+
+<SqlRunner
+  query={`CREATE TABLE orders_wide (
+  order_id INTEGER, customer_name TEXT, customer_email TEXT, product TEXT
+);
+INSERT INTO orders_wide VALUES
+  (101, 'Ana', 'ana@old.test', 'Running shoe'),
+  (102, 'Ana', 'ana@old.test', 'Trail socks'),
+  (103, 'Ben', 'ben@x.test',  'Water bottle');
+
+-- one logical change ("Ana's new email") hits multiple rows:
+UPDATE orders_wide SET customer_email = 'ana@new.test'
+WHERE customer_name = 'Ana';
+
+SELECT * FROM orders_wide;`}
+  height={210}
+/>
+
+**Insertion anomaly.** You cannot record a new customer until they place an order - there is no row to put them in. A product with no orders has nowhere to live.
+
+**Deletion anomaly.** Delete Ben's only order and you also erase the only record that Ben, and the water bottle, ever existed.
+
+The cure for all three is the same: split the table so each fact sits once.
+
+## The normal forms
+
+Normalization proceeds in steps. The first three handle almost every real schema.
+
+**First normal form (1NF): atomic values, no repeating groups.** Each cell holds one value, and you do not stuff a list into a column (`sizes: '40,41,42'`) or repeat columns (`product_1`, `product_2`). A separate row per value instead.
+
+**Second normal form (2NF): no partial dependencies.** Applies when the key is *composite* (several columns). Every non-key column must depend on the **whole** key, not part of it. In an `order_items(order_id, product_id, quantity, product_name)` table, `product_name` depends only on `product_id` - half the key - so it belongs in `products`, not here.
+
+**Third normal form (3NF): no transitive dependencies.** No non-key column may depend on another non-key column. An `orders(id, customer_id, customer_email)` table breaks this: `customer_email` depends on `customer_id`, which is not the key. Move it to `customers`, where `customer_id` *is* the key.
+
+Apply all three and the wide table becomes the store's actual schema - customers, orders, products, order_items - each fact in one home. Now Ana's email is a single row to update:
+
+<SqlRunner
+  query={`-- in the normalized schema, email lives once, on the customer
+UPDATE customers SET country = 'PT' WHERE name = 'Ana';
+SELECT * FROM customers;`}
+  height={120}
+/>
+
+A working rule of thumb: **every non-key column should depend on the key, the whole key, and nothing but the key.**
+
+## Denormalization: breaking the rule on purpose
+
+Normalization optimizes for correct *writes*. Sometimes you deliberately trade it away for faster *reads*:
+
+- **Precomputed values** - storing `orders.total` instead of summing line items on every read.
+- **Reporting and analytics** - a [warehouse star schema](../05-beyond-relational/oltp-olap.mdx) is denormalized so dashboards avoid huge joins.
+- **Caching** - duplicating a hot value to skip a join.
+
+The cost is the update anomaly you just saw: duplicated data can drift, so you take on the job of keeping copies in sync (triggers, scheduled jobs, application code). The rule for 2026: **normalize by default; denormalize only with a measured reason, and document the duplication.**
+
+## Quick quiz
+
+<Quiz
+  title="Normalization"
+  questions={[
+    {
+      prompt: "Updating one customer's email forces you to change it in many rows. Which anomaly is this?",
+      options: [
+        {text: "Update anomaly", correct: true},
+        {text: "Insertion anomaly", correct: false},
+        {text: "Deletion anomaly", correct: false},
+        {text: "Transitive anomaly", correct: false},
+      ],
+      explanation: "Duplicated data means one logical change touches many rows - the update anomaly. Miss one and the data contradicts itself.",
+    },
+    {
+      prompt: "Storing '40,41,42' as a comma-separated list in one column violates which rule?",
+      options: [
+        {text: "First normal form (atomic values)", correct: true},
+        {text: "Second normal form", correct: false},
+        {text: "Third normal form", correct: false},
+        {text: "Referential integrity", correct: false},
+      ],
+      explanation: "1NF requires one value per cell, no repeating groups or embedded lists. Use a separate row per value.",
+    },
+    {
+      prompt: "In orders(id, customer_id, customer_email), customer_email depends on customer_id (a non-key column). Which form does this break?",
+      options: [
+        {text: "Third normal form (transitive dependency)", correct: true},
+        {text: "First normal form", correct: false},
+        {text: "Second normal form", correct: false},
+        {text: "None - it's fine", correct: false},
+      ],
+      explanation: "A non-key column depending on another non-key column is a transitive dependency - a 3NF violation. Move email to customers.",
+    },
+    {
+      prompt: "When is denormalization a reasonable choice?",
+      options: [
+        {text: "For read-heavy cases like reporting, with a measured reason and the duplication documented", correct: true},
+        {text: "Always - it is simpler", correct: false},
+        {text: "Never - normalization is mandatory", correct: false},
+        {text: "Whenever a table has more than three columns", correct: false},
+      ],
+      explanation: "Denormalize deliberately to speed reads (analytics, caching, precomputed totals), accepting that you must keep the duplicated data in sync.",
+    },
+  ]}
+/>
+
+:::tip Next up
+The design is sound. **[Functions and procedures](./functions.mdx)** closes the stage by packaging reusable logic in the database itself.
+:::

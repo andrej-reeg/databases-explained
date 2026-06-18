@@ -1,0 +1,247 @@
+---
+sidebar_position: 9
+title: Changing data - DML and TCL
+sidebar_label: DML & TCL
+description: Change data with DML (INSERT, UPDATE, DELETE, TRUNCATE) and control those changes with TCL (COMMIT, ROLLBACK, SAVEPOINT) - in a live SQL sandbox.
+---
+
+import SqlRunner from '@site/src/components/SqlRunner';
+import Quiz from '@site/src/components/Quiz';
+
+# Changing data: DML and TCL
+
+SQL statements fall into families. So far you have written **DML** - the part that reads and changes data. This lesson finishes DML's write side and adds **TCL**, the family that controls when those changes become permanent.
+
+- **DML (Data Manipulation Language)** works with the *rows*: `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`.
+- **TCL (Transaction Control Language)** works with the *transaction* around those changes: `COMMIT`, `ROLLBACK`, `SAVEPOINT`.
+
+(Two more families exist and come later: **DDL** defines structure - `CREATE`, `ALTER`, `DROP` - and **DCL** manages permissions - `GRANT`, `REVOKE`.)
+
+:::tip This page is live
+Every query box below runs a real SQLite database **in your browser** - the same store schema from the [stage overview](./). Edit any query, press **Run**, and experiment. **Reset data** restores the starting rows, so you cannot break anything.
+:::
+
+<SqlRunner query={`SELECT * FROM orders;`} />
+
+## DML: changing rows
+
+### INSERT - add rows
+
+`INSERT` adds new rows. List the columns, then the values:
+
+<SqlRunner
+  query={`INSERT INTO customers (id, name, country)
+VALUES (4, 'Dee', 'LT');
+
+SELECT * FROM customers;`}
+  height={140}
+/>
+
+### UPDATE - change existing rows
+
+`UPDATE` changes rows that match its `WHERE`:
+
+<SqlRunner
+  query={`UPDATE orders
+SET total = 30.00
+WHERE id = 102;
+
+SELECT * FROM orders;`}
+  height={140}
+/>
+
+### DELETE - remove rows
+
+`DELETE` removes rows that match its `WHERE`:
+
+<SqlRunner
+  query={`DELETE FROM order_items
+WHERE order_id = 103;
+
+SELECT * FROM order_items;`}
+  height={140}
+/>
+
+:::warning WHERE is not optional in practice
+`UPDATE` and `DELETE` hit **every row that matches the `WHERE`** - and with no `WHERE`, that is the whole table. `DELETE FROM orders;` empties it. Before running either, run the same `WHERE` as a `SELECT` first and check the rows are the ones you mean. (Here, **Reset data** saves you - in production nothing does.)
+:::
+
+### TRUNCATE - empty a table fast
+
+`TRUNCATE TABLE orders;` removes **all** rows in one fast operation - quicker than `DELETE` because it does not process rows one by one.
+
+:::note Dialects differ
+`TRUNCATE` is standard in PostgreSQL, MySQL, and SQL Server, but **SQLite has no `TRUNCATE`** - you write `DELETE FROM orders;` instead (SQLite optimizes that case internally). The sandbox here is SQLite, so try the `DELETE` form. This is your first taste of a real lesson: SQL is a standard, but every engine has its own dialect.
+:::
+
+## TCL: controlling the transaction
+
+Recall from [the ACID section](../00-orientation/intro.mdx#acid-why-relational-databases-are-trusted-with-money) that a **transaction** is a group of changes treated as one unit. TCL is how you draw that boundary yourself.
+
+- **`BEGIN`** starts a transaction.
+- **`COMMIT`** makes every change since `BEGIN` permanent.
+- **`ROLLBACK`** throws them all away, as if they never happened.
+
+### ROLLBACK - undo everything since BEGIN
+
+Run this. The first count is `0` (rows gone inside the transaction); after `ROLLBACK` the second count is back to `3`:
+
+<SqlRunner
+  query={`BEGIN;
+DELETE FROM orders;
+SELECT COUNT(*) AS during_txn FROM orders;
+ROLLBACK;
+SELECT COUNT(*) AS after_rollback FROM orders;`}
+  height={150}
+/>
+
+This is the safety net behind money transfers: if anything goes wrong mid-way, `ROLLBACK` leaves the data exactly as it was.
+
+### SAVEPOINT - a partial undo point
+
+A **`SAVEPOINT`** is a named marker inside a transaction. `ROLLBACK TO` that savepoint undoes the work after it while keeping the work before it. Useful for "try this risky step; if it fails, back out just that part."
+
+<SqlRunner
+  query={`BEGIN;
+UPDATE customers SET country = 'IE' WHERE id = 3;   -- keep this
+SAVEPOINT risky;
+UPDATE customers SET country = 'ZZ';                -- oops, all rows
+ROLLBACK TO risky;                                  -- undo only the oops
+COMMIT;
+SELECT * FROM customers;`}
+  height={170}
+/>
+
+Customer 3 keeps its new `IE`; the blanket update after the savepoint is gone.
+
+## What can actually be rolled back?
+
+`ROLLBACK` undoes a transaction - but *which* statements obey it depends on the engine.
+
+**DML always rolls back.** `INSERT`, `UPDATE`, and `DELETE` are undone cleanly by `ROLLBACK` in every database. That is the whole point of a transaction.
+
+**DDL is where engines disagree.** DDL (Data Definition Language - `CREATE`, `ALTER`, `DROP`) changes the database's *structure*, and not every engine can undo that inside a transaction:
+
+- **Transactional DDL** (PostgreSQL, SQL Server, SQLite): a `CREATE`/`ALTER`/`DROP` inside a transaction is rolled back like anything else.
+- **Auto-committing DDL** (Oracle, MySQL): issuing DDL silently commits the current transaction first, so it cannot be undone.
+
+Our sandbox is SQLite, which *has* transactional DDL. Create a table inside a transaction, roll back, and it never existed:
+
+<SqlRunner
+  query={`BEGIN;
+CREATE TABLE scratch (note TEXT);
+ROLLBACK;
+-- the table is gone; this SELECT errors, proving the rollback worked
+SELECT * FROM scratch;`}
+  height={150}
+/>
+
+A few operations are irreversible everywhere - `DROP DATABASE` is gone the moment it runs, transaction or not.
+
+### Transactional behaviour across databases (2026)
+
+The same statement can be safe to roll back in one engine and a point of no return in another. Know your engine before you rely on it.
+
+| Statement | PostgreSQL 18 | SQL Server 2022 | SQLite 3.49 | MySQL 8.4 | Oracle 23ai |
+|---|---|---|---|---|---|
+| `INSERT` / `UPDATE` / `DELETE` | rolls back | rolls back | rolls back | rolls back | rolls back |
+| `TRUNCATE` | rolls back | rolls back | not supported* | auto-commits | auto-commits |
+| `CREATE` / `ALTER` / `DROP` | rolls back | rolls back | rolls back | auto-commits | auto-commits |
+
+\*SQLite has no `TRUNCATE`; use `DELETE FROM`, which is fully transactional.
+
+The takeaway: on PostgreSQL you can wrap a risky migration (table changes included) in one transaction and roll the whole thing back on error. On MySQL or Oracle, a DDL statement commits everything before it - so a failed migration can leave you half-changed.
+
+## Exercise
+
+Use the sandbox - **Reset data** between attempts.
+
+**1. Worked.** Give every Irish customer a new country code, then undo it without committing.
+
+```sql
+BEGIN;
+UPDATE customers SET country = 'IE-NEW' WHERE country = 'IE';
+ROLLBACK;
+SELECT * FROM customers;   -- unchanged
+```
+
+**2. Finish it.** Insert a new product, then make it permanent. Fill the blanks.
+
+```sql
+BEGIN;
+INSERT INTO products (id, name, price) VALUES (4, 'Cap', 15.00);
+____;
+SELECT * FROM products;
+```
+
+**3. Write it yourself.** Inside one transaction: delete all `order_items` for order `101`, set a `SAVEPOINT`, delete order `101` itself, then `ROLLBACK TO` the savepoint so only the items stay deleted. Commit.
+
+<details>
+<summary>Show answers</summary>
+
+**2.** `COMMIT;` makes the insert permanent.
+
+**3.**
+
+```sql
+BEGIN;
+DELETE FROM order_items WHERE order_id = 101;
+SAVEPOINT after_items;
+DELETE FROM orders WHERE id = 101;
+ROLLBACK TO after_items;
+COMMIT;
+```
+
+</details>
+
+## Quick quiz
+
+<Quiz
+  title="DML and TCL"
+  questions={[
+    {
+      prompt: "Which statement is TCL, not DML?",
+      options: [
+        {text: "ROLLBACK", correct: true},
+        {text: "UPDATE"},
+        {text: "DELETE"},
+        {text: "INSERT"},
+      ],
+      explanation: "ROLLBACK controls the transaction (TCL). INSERT, UPDATE, and DELETE change rows (DML).",
+    },
+    {
+      prompt: "You ran DELETE inside a transaction and realised it was wrong, before COMMIT. What undoes it?",
+      options: [
+        {text: "ROLLBACK", correct: true},
+        {text: "TRUNCATE"},
+        {text: "Another DELETE"},
+        {text: "DROP TABLE"},
+      ],
+      explanation: "ROLLBACK discards every change since BEGIN. TRUNCATE and DELETE remove more data; DROP removes the table itself.",
+    },
+    {
+      prompt: "Why can TRUNCATE be faster than DELETE for emptying a table?",
+      options: [
+        {text: "It removes all rows at once instead of processing them one by one", correct: true},
+        {text: "It keeps a backup first"},
+        {text: "It only marks rows as hidden"},
+        {text: "It runs outside any transaction by law"},
+      ],
+      explanation: "TRUNCATE drops all rows in one operation rather than deleting row by row. (Note: SQLite has no TRUNCATE - use DELETE FROM.)",
+    },
+    {
+      prompt: "What does SAVEPOINT give you that COMMIT and ROLLBACK alone do not?",
+      options: [
+        {text: "A partial undo point - roll back to it without losing earlier work in the transaction", correct: true},
+        {text: "A way to commit half a transaction permanently"},
+        {text: "Automatic backups of the whole database"},
+        {text: "Faster inserts"},
+      ],
+      explanation: "ROLLBACK TO a savepoint undoes only the work after it, keeping earlier changes in the same transaction. It does not commit anything by itself.",
+    },
+  ]}
+/>
+
+:::tip You finished Stage 1
+You can query, aggregate, join, nest subqueries, change data, and control transactions - and run it all yourself. Next is **[Stage 2 - Designing a Database](../02-designing/index.mdx)**, where you decide what the tables should be.
+:::

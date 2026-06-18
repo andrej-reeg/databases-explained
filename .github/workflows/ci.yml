@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Validate SQL seed and examples
+        run: npm run validate:sql
+      - name: Validate Mermaid diagrams
+        run: npm run validate:diagrams
+      - name: Build site (also checks for broken links)
+        run: npm run build

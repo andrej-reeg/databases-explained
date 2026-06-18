@@ -1,0 +1,172 @@
+---
+title: Stage 6 review
+sidebar_label: Stage 6 review
+description: Cumulative Stage 6 review - choose between replication, partitioning, and sharding, pick a shard key, apply CAP and PACELC during a partition, and design a RAG pipeline, plus a comprehensive quiz and a cheatsheet.
+sidebar_position: 5
+---
+
+import Quiz from '@site/src/components/Quiz';
+
+# Stage 6 review
+
+This page pulls Stage 6 together. **Scale forces trade-offs single-machine databases hide**: where data lives, what happens during a network partition, and how meaning-based search works. Work the scenarios before opening the answers, then take the quiz and keep the cheatsheet handy.
+
+Go back to a lesson if a scenario stumps you: [Scaling out](./scaling-out.mdx), [Consistency and concurrency](./consistency.mdx), [Vector databases and RAG](./vector-databases.mdx).
+
+## Scenarios
+
+### Scenario 1 - Replicate, partition, or shard?
+
+A read-heavy app slows down. Reads outnumber writes 50:1, and the dataset still fits one machine. What do you reach for first, and what would push you further?
+
+<details>
+<summary>Show the answer</summary>
+
+**Replicate first.** Add read replicas and send reads to them; the primary handles writes. It directly fixes a read-bound load and is the least disruptive step.
+
+Escalate only when replication is not enough: **partition** (split one table by a key, e.g. by date, within a machine) when a table is huge, then **shard** (spread data across many machines by a shard key) when one machine can no longer hold the data or the write volume. The order is **replicate first, partition next, shard last** - each step adds operational complexity.
+
+</details>
+
+### Scenario 2 - Pick the shard key
+
+You shard an events table. A teammate proposes sharding by `country`. Most traffic is one country. What goes wrong, and what makes a better key?
+
+<details>
+<summary>Show the answer</summary>
+
+Sharding by `country` creates a **hotspot**: the busiest country's shard takes most traffic while others sit idle - you have not really distributed load. Low-cardinality, skewed keys are bad shard keys.
+
+A better key has **high cardinality and even access** - e.g. a hash of `user_id`, or a composite. The goal is to spread reads and writes evenly and keep related rows you query together on the same shard. Re-sharding later is expensive, so choose carefully up front.
+
+</details>
+
+### Scenario 3 - The partition hits
+
+A network partition splits your distributed database. CAP says you must give something up. For (a) a bank ledger and (b) a "last seen" presence indicator, do you choose consistency or availability, and what does PACELC add?
+
+<details>
+<summary>Show the answer</summary>
+
+During a partition you can keep **C**onsistency or **A**vailability, not both (P is not optional).
+
+- (a) **Bank ledger -> consistency.** Refuse writes that cannot be safely coordinated; a wrong balance is worse than a brief outage.
+- (b) **Presence indicator -> availability.** Keep serving even if a "last seen" value is slightly stale; nobody is harmed.
+
+**PACELC** adds the steady-state choice: **else** (no partition), you still trade **L**atency vs **C**onsistency - e.g. synchronous replication is more consistent but slower; asynchronous is faster but can serve stale reads.
+
+</details>
+
+### Scenario 4 - Design a RAG pipeline
+
+A support assistant must answer from your help articles. Sketch the retrieval pipeline and the two quality levers you would tune first.
+
+<details>
+<summary>Show the answer</summary>
+
+Pipeline: **chunk** articles -> **embed** each chunk with an embedding model -> store vectors in an index (**HNSW**/IVF, e.g. pgvector) -> at query time, **embed the question**, **retrieve nearest neighbors**, optionally **rerank**, then feed the top chunks to the LLM as context.
+
+First levers: **chunking** (size and overlap - too big buries the answer, too small loses context) and **hybrid search** (combine keyword/BM25 with vector similarity, then rerank) to catch both exact terms and meaning. And **re-embed everything if you change the embedding model** - query and stored vectors must come from the same model.
+
+</details>
+
+## Comprehensive quiz
+
+<Quiz
+  title="Stage 6 cumulative review"
+  questions={[
+    {
+      prompt: "Reads vastly outnumber writes and the data fits one machine. The first scaling move is:",
+      options: [
+        {text: "Add read replicas (replicate)", correct: true},
+        {text: "Shard across many machines", correct: false},
+        {text: "Drop all indexes", correct: false},
+        {text: "Switch to a key-value store", correct: false},
+      ],
+      explanation: "Replication offloads reads with the least added complexity and directly fixes a read-bound load. Sharding is last resort - it adds cross-node coordination. Replicate first, partition next, shard last.",
+    },
+    {
+      prompt: "A good shard key is characterized by:",
+      options: [
+        {text: "High cardinality and even access, spreading load across shards", correct: true},
+        {text: "Low cardinality so there are few shards", correct: false},
+        {text: "Always the primary key's creation timestamp", correct: false},
+        {text: "Whatever column is alphabetically first", correct: false},
+      ],
+      explanation: "Even distribution avoids hotspots, so a high-cardinality, evenly-accessed key (e.g. hashed user_id) is ideal. Low-cardinality or skewed keys pile traffic onto one shard; monotonic timestamps create a write hotspot on the newest shard.",
+    },
+    {
+      prompt: "The CAP theorem says that during a network partition a distributed system must choose between:",
+      options: [
+        {text: "Consistency and availability", correct: true},
+        {text: "Latency and durability", correct: false},
+        {text: "Reads and writes", correct: false},
+        {text: "SQL and NoSQL", correct: false},
+      ],
+      explanation: "Partition tolerance is not optional in a distributed system, so when a partition occurs you trade consistency against availability. The other pairs are not what CAP describes.",
+    },
+    {
+      prompt: "PACELC extends CAP by also describing the trade-off when there is NO partition:",
+      options: [
+        {text: "Latency versus consistency in normal operation", correct: true},
+        {text: "Availability versus durability", correct: false},
+        {text: "CPU versus memory", correct: false},
+        {text: "Rows versus columns", correct: false},
+      ],
+      explanation: "PACELC: if Partition then C-or-A, Else trade Latency-or-Consistency. Even with no partition, stronger consistency (e.g. synchronous replication) costs latency; relaxing it lowers latency but can serve stale data.",
+    },
+    {
+      prompt: "NewSQL systems (CockroachDB, Spanner, TiDB) aim to provide:",
+      options: [
+        {text: "SQL and ACID transactions with horizontal scale", correct: true},
+        {text: "Schema-free storage with no transactions", correct: false},
+        {text: "Only analytical (OLAP) queries", correct: false},
+        {text: "Vector search exclusively", correct: false},
+      ],
+      explanation: "NewSQL keeps SQL and ACID while scaling out across nodes, using consensus (and synchronized clocks like TrueTime) for global ordering. It is the answer to the old 'SQL cannot scale horizontally' assumption.",
+    },
+    {
+      prompt: "In a RAG system, if you switch to a new embedding model you must:",
+      options: [
+        {text: "Re-embed all stored documents so queries and vectors share the same space", correct: true},
+        {text: "Only re-embed the query", correct: false},
+        {text: "Change nothing - embeddings are interchangeable", correct: false},
+        {text: "Delete the vector index permanently", correct: false},
+      ],
+      explanation: "Vectors from different models live in different spaces, so similarity is meaningless across them. Both the stored documents and the query must be embedded by the same model - changing models means re-embedding the corpus.",
+    },
+  ]}
+/>
+
+## Stage 6 cheatsheet
+
+<details>
+<summary>Open the Stage 6 cheatsheet</summary>
+
+**Scaling out**
+
+- **Replicate first** - read replicas offload reads; primary takes writes.
+- **Partition next** - split a big table by key (often within a machine).
+- **Shard last** - spread data across machines by a **shard key**.
+- Shard key = **high cardinality + even access**; avoid hotspots and monotonic keys. Re-sharding is expensive.
+
+**Consistency**
+
+- **CAP** - during a Partition, choose **C** or **A** (P is mandatory).
+- **PACELC** - if Partition: C-or-A; Else: **Latency-or-Consistency**.
+- ACID-**C** (valid state) is a different word from distributed **consistency** (same latest value everywhere).
+- **MVCC / WAL** scale up too; **NewSQL** = SQL + ACID + horizontal scale via **consensus**.
+
+**Vector search and RAG**
+
+- **Embedding** = vector capturing meaning; same model for stored data and queries.
+- **ANN index** = **HNSW** / IVF for fast approximate nearest-neighbor; **pgvector** keeps it next to relational data.
+- **RAG pipeline**: chunk -> embed -> index -> (query: embed -> retrieve -> rerank) -> LLM context.
+- Tune **chunk size/overlap** and add **hybrid search** (BM25 + vector + rerank).
+- **Re-embed** the whole corpus when the model changes.
+
+</details>
+
+:::tip You finished the path
+That is the full journey - from "what is a database" to distributed and AI databases. Put it all together in the **[Capstone](../07-capstone/index.mdx)**: design, populate, query, index, secure, and report on a bookstore from scratch.
+:::

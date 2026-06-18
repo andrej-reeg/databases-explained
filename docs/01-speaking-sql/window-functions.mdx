@@ -1,0 +1,269 @@
+---
+sidebar_position: 7
+title: Window functions
+sidebar_label: Window functions
+description: Calculate running totals, ranks, and row-to-row comparisons across a window of rows - without collapsing them - using OVER, PARTITION BY, ranking, offset functions, and frames (ROWS, RANGE, GROUPS).
+---
+
+import SqlRunner from '@site/src/components/SqlRunner';
+import Quiz from '@site/src/components/Quiz';
+
+# Window functions
+
+`GROUP BY` collapses many rows into one summary. A **window function** does the opposite: it computes across a set of related rows - the *window* - while **keeping every row** and its detail. That makes it the tool for running totals, rankings, percentiles, moving averages, and row-to-row comparisons - calculations that otherwise need awkward self-joins or subqueries.
+
+Every box below is live (**Run** or **Ctrl+Enter**). Window functions are standard SQL and work everywhere in 2026 - PostgreSQL, SQL Server, MySQL 8+, and SQLite 3.25+ (this sandbox).
+
+## OVER: aggregate without collapsing
+
+Add an **`OVER (...)`** clause to an aggregate and it becomes a window function. With `ORDER BY` inside `OVER`, the aggregate accumulates - a **running total** - while each order keeps its own row:
+
+<SqlRunner
+  query={`SELECT id, created_at, total,
+       SUM(total) OVER (ORDER BY created_at) AS running_total
+FROM orders;`}
+  height={140}
+/>
+
+The `SUM` is computed over "all rows up to this one, ordered by date." Without `OVER` you would get a single grand total; with it, you keep all three rows *and* the cumulative figure.
+
+## PARTITION BY: a window per group
+
+**`PARTITION BY`** restarts the window for each group - like `GROUP BY`, but without collapsing. Here the running total resets per customer:
+
+<SqlRunner
+  query={`SELECT customer_id, id, total,
+       SUM(total) OVER (PARTITION BY customer_id ORDER BY created_at) AS customer_running
+FROM orders;`}
+  height={140}
+/>
+
+## Ranking functions
+
+Ranking functions number rows within the (ordered) window. The three you will use most differ only in how they treat **ties**:
+
+- **`ROW_NUMBER`** - a unique number per row, no ties (1, 2, 3, ...).
+- **`RANK`** - ties share a rank, then it **skips** (1, 1, 3).
+- **`DENSE_RANK`** - ties share a rank, no gap (1, 1, 2).
+
+<SqlRunner
+  query={`WITH scores(name, points) AS (
+  VALUES ('Ana', 90), ('Ben', 90), ('Cleo', 75)
+)
+SELECT name, points,
+       ROW_NUMBER() OVER (ORDER BY points DESC) AS row_num,
+       RANK()       OVER (ORDER BY points DESC) AS rank,
+       DENSE_RANK() OVER (ORDER BY points DESC) AS dense_rank
+FROM scores;`}
+  height={170}
+/>
+
+Ana and Ben tie at 90: `RANK` puts Cleo at 3 (skipping 2), `DENSE_RANK` puts her at 2 (no gap), `ROW_NUMBER` just counts 1-2-3. Related functions divide or position rows: **`NTILE(n)`** splits the window into `n` buckets (quartiles, pages), and **`PERCENT_RANK`** / **`CUME_DIST`** give relative standing.
+
+## Offset functions: look at other rows
+
+Offset functions reach to other rows in the window. **`LAG`** and **`LEAD`** read the previous and next row - perfect for "how did this change from last time?" **`FIRST_VALUE`** and **`LAST_VALUE`** read the ends of the window.
+
+<SqlRunner
+  query={`SELECT id, created_at, total,
+       LAG(total) OVER (ORDER BY created_at)         AS prev_total,
+       total - LAG(total) OVER (ORDER BY created_at) AS change_vs_prev
+FROM orders;`}
+  height={140}
+/>
+
+The first row's `prev_total` is `NULL` - there is no earlier row to look back to.
+
+## Window frames: which rows the function sees
+
+A **frame** is the slice of the window a function actually computes over. When you add `ORDER BY` to `OVER`, the default frame is "from the start of the partition through the current row" - that is exactly why `SUM` became a running total earlier. State a frame explicitly to change that.
+
+:::warning The `LAST_VALUE` trap - the #1 window bug
+That default frame ends at the **current row**, which quietly breaks `LAST_VALUE`. `LAST_VALUE(total) OVER (ORDER BY created_at)` returns the *current* row's value, not the partition's last - because "the last row of the frame" is the current row, not the last row overall. `FIRST_VALUE` looks right only because the frame's start is already the partition start. To get the true final value, widen the frame to the whole partition: `LAST_VALUE(total) OVER (ORDER BY created_at ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)`. Whenever you order a window and reach past the current row, set the frame explicitly.
+:::
+
+Frame boundaries combine a start and an end with `BETWEEN`:
+
+- `UNBOUNDED PRECEDING` - the first row of the partition.
+- `n PRECEDING` / `n FOLLOWING` - `n` units before / after the current row.
+- `CURRENT ROW` - the current row.
+- `UNBOUNDED FOLLOWING` - the last row of the partition.
+
+(The start may not come after the end - `CURRENT ROW` before `UNBOUNDED PRECEDING` is illegal.) A `ROWS` frame over the last two rows gives a **moving average**:
+
+<SqlRunner
+  query={`SELECT id, created_at, total,
+       AVG(total) OVER (
+         ORDER BY created_at
+         ROWS BETWEEN 1 PRECEDING AND CURRENT ROW
+       ) AS moving_avg_2
+FROM orders;`}
+  height={150}
+/>
+
+### ROWS, RANGE, or GROUPS
+
+The frame *unit* decides what `n` counts:
+
+- **`ROWS`** - a physical count of rows. `1 PRECEDING AND CURRENT ROW` is exactly two rows.
+- **`RANGE`** - by the *value* of the `ORDER BY` column. `RANGE BETWEEN 20 PRECEDING AND 20 FOLLOWING` includes every row whose value is within 20 of the current one - so the row count varies. PostgreSQL also allows time ranges (`RANGE BETWEEN INTERVAL '1 day' PRECEDING AND ...`); SQLite supports numeric ranges only.
+- **`GROUPS`** - by peer groups of equal `ORDER BY` value - move `n` distinct-value groups, not `n` rows.
+
+The same query as `RANGE`, sized by value instead of row count:
+
+<SqlRunner
+  query={`SELECT id, total,
+       SUM(total) OVER (
+         ORDER BY total
+         RANGE BETWEEN 20 PRECEDING AND 20 FOLLOWING
+       ) AS sum_within_20
+FROM orders;`}
+  height={150}
+/>
+
+### Excluding rows, and NTH_VALUE
+
+`EXCLUDE` trims rows from the frame: `EXCLUDE CURRENT ROW` drops the current row, `EXCLUDE TIES` drops its peers but keeps it, `EXCLUDE GROUP` drops both, and the default `EXCLUDE NO OTHERS` keeps everything. **`NTH_VALUE(col, n)`** returns the n-th row's value in the frame - a generalisation of `FIRST_VALUE`. Here, each row sees the total of *every other* order (itself excluded):
+
+<SqlRunner
+  query={`SELECT id, total,
+       SUM(total) OVER (
+         ORDER BY created_at
+         ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+         EXCLUDE CURRENT ROW
+       ) AS others_total
+FROM orders;`}
+  height={160}
+/>
+
+## When to reach for them
+
+Use a window function whenever you need a per-row calculation that depends on *other* rows: running totals and cumulative sums, rankings and top-N-per-group, moving averages and trends, or comparing each row to the previous one to find gaps and peaks. They keep these queries flat and readable - no self-joins, no correlated subqueries.
+
+## Exercise
+
+Reading window functions and writing them are different skills. Compose these two yourself against the store's `orders`.
+
+**1. Finish it - running total per customer.** Show each order's `customer_id`, `id`, and `total`, plus a running total of `total` **within each customer**, ordered by date. Fill the blank, then run - the box checks your result.
+
+<SqlRunner
+  query={`SELECT customer_id, id, total,
+       SUM(total) OVER (____ customer_id ORDER BY created_at) AS customer_running
+FROM orders
+ORDER BY customer_id, created_at;`}
+  solution={`SELECT customer_id, id, total, SUM(total) OVER (PARTITION BY customer_id ORDER BY created_at) AS customer_running FROM orders ORDER BY customer_id, created_at;`}
+  ordered
+  height={160}
+/>
+
+**2. Write it yourself - rank within each customer.** Show each order's `id`, `customer_id`, and `total`, plus its **rank within that customer** by `total`, biggest first (rank 1 = the customer's largest order). Order by `customer_id`, then rank. Run it to check.
+
+<SqlRunner
+  query={`-- Write your query here, then press Run\n`}
+  solution={`SELECT id, customer_id, total, RANK() OVER (PARTITION BY customer_id ORDER BY total DESC) AS rnk FROM orders ORDER BY customer_id, rnk;`}
+  ordered
+  height={140}
+/>
+
+<details>
+<summary>Show answers</summary>
+
+```sql
+-- 1. running total per customer
+SELECT customer_id, id, total,
+       SUM(total) OVER (PARTITION BY customer_id ORDER BY created_at) AS customer_running
+FROM orders
+ORDER BY customer_id, created_at;
+
+-- 2. rank within each customer
+SELECT id, customer_id, total,
+       RANK() OVER (PARTITION BY customer_id ORDER BY total DESC) AS rnk
+FROM orders
+ORDER BY customer_id, rnk;
+```
+
+`PARTITION BY customer_id` restarts the window per customer; the `OVER` clause keeps every order on its own row.
+
+</details>
+
+## Quick quiz
+
+<Quiz
+  title="Window functions"
+  questions={[
+    {
+      prompt: "What does the OVER clause define for a window function?",
+      options: [
+        {text: "Which rows the function operates on - the partition, ordering, and frame", correct: true},
+        {text: "The data type the function returns", correct: false},
+        {text: "Which table to read from", correct: false},
+        {text: "The transaction isolation level", correct: false},
+      ],
+      explanation: "OVER defines the window: how rows are partitioned, ordered, and framed. It is what turns an aggregate into a per-row window calculation.",
+    },
+    {
+      prompt: "How do RANK and DENSE_RANK differ on ties?",
+      options: [
+        {text: "RANK skips numbers after a tie (1,1,3); DENSE_RANK does not (1,1,2)", correct: true},
+        {text: "DENSE_RANK skips numbers; RANK does not", correct: false},
+        {text: "They are identical", correct: false},
+        {text: "Neither allows ties", correct: false},
+      ],
+      explanation: "Both let ties share a rank, but RANK leaves a gap afterward while DENSE_RANK keeps the sequence dense. ROW_NUMBER never ties at all.",
+    },
+    {
+      prompt: "Which function returns a value from the first row of the sorted window?",
+      options: [
+        {text: "FIRST_VALUE", correct: true},
+        {text: "LAG", correct: false},
+        {text: "LEAD", correct: false},
+        {text: "RANK", correct: false},
+      ],
+      explanation: "FIRST_VALUE reads the first row of the window. LAG/LEAD read the previous/next row; RANK assigns a position.",
+    },
+    {
+      prompt: "You want each row to show the cumulative total of a column up to that row. What do you use?",
+      options: [
+        {text: "SUM(col) OVER (ORDER BY ...)", correct: true},
+        {text: "SUM(col) with GROUP BY", correct: false},
+        {text: "COUNT(*)", correct: false},
+        {text: "A second copy of the table joined to itself", correct: false},
+      ],
+      explanation: "SUM with an ordered OVER clause produces a running total while keeping every row. GROUP BY would collapse the rows into one.",
+    },
+    {
+      prompt: "What is a window frame?",
+      options: [
+        {text: "The subset of the window's rows a function actually computes over", correct: true},
+        {text: "The name used to reference a window elsewhere", correct: false},
+        {text: "The list of columns returned by the query", correct: false},
+        {text: "A mandatory part of every window function", correct: false},
+      ],
+      explanation: "A frame narrows the window to a range of rows (e.g. the last 3). It is optional - omit it and a sensible default applies.",
+    },
+    {
+      prompt: "What does UNBOUNDED PRECEDING mean in a frame?",
+      options: [
+        {text: "All rows from the start of the partition up to the current row", correct: true},
+        {text: "All rows after the current row", correct: false},
+        {text: "Only the current row", correct: false},
+        {text: "That no rows precede the current row", correct: false},
+      ],
+      explanation: "UNBOUNDED PRECEDING anchors the frame's start at the first row of the partition, so the frame grows as you move down - the basis of a running total.",
+    },
+    {
+      prompt: "How does a ROWS frame differ from a RANGE frame?",
+      options: [
+        {text: "ROWS counts a fixed number of physical rows; RANGE goes by the ORDER BY column's value", correct: true},
+        {text: "They are identical", correct: false},
+        {text: "ROWS works only on numbers; RANGE only on text", correct: false},
+        {text: "RANGE is faster but less accurate", correct: false},
+      ],
+      explanation: "ROWS BETWEEN 1 PRECEDING AND CURRENT ROW is always two rows. RANGE includes every row whose value falls within the offset, so its row count varies.",
+    },
+  ]}
+/>
+
+:::tip Next up
+**[Data types and dates](./data-types-and-dates.mdx)** - the core types, casting, and the date/time handling that trips everyone up.
+:::

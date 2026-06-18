@@ -1,0 +1,541 @@
+---
+sidebar_position: 1
+slug: /capstone
+title: Capstone project
+sidebar_label: Capstone
+description: Build a bookstore database end to end - design and justify a schema, populate it, query it, tune it, secure it, and write one report that combines every skill.
+---
+
+import SqlRunner from '@site/src/components/SqlRunner';
+
+# Capstone: build a bookstore
+
+**This project exercises the whole path.** You design a bookstore schema and defend your choices, populate it, query it, tune it, wrap a write in a transaction, secure it, and finish with one report that combines several skills at once.
+
+Each task maps to a stage you have already studied. The runnable boxes are **pre-seeded with the finished bookstore**, so any task runs on its own - you do not have to complete earlier tasks first. Try each task before opening its solution.
+
+The brief: a bookstore has **authors**, the **books** they write, **customers**, and the **orders** customers place. An order contains one or more books, each with a quantity.
+
+## Task 1 - Design and justify the schema (Stage 2)
+
+Design five tables: `author`, `book`, `customer`, `order`, `order_item`. Before writing DDL, answer four design questions. **Decide first, then check.**
+
+1. **Keys.** Surrogate (`author_id INTEGER`) or natural (use the author's name) primary key for `author`? Why?
+2. **Normalization.** Where does each book's author name live? Should it repeat on every book row?
+3. **Foreign keys.** When a customer is deleted, what should happen to their orders? When an order is deleted, what should happen to its line items?
+4. **A CHECK constraint.** What rule must `price` and `quantity` always satisfy?
+
+<details>
+<summary>Show design reasoning</summary>
+
+:::note Why each choice
+
+- **Surrogate keys.** Use an `INTEGER` id per table. A natural key like a name can change and is not guaranteed unique - two authors can share a name. A stable surrogate keeps foreign keys small and immutable.
+- **Normalization (no repeating author name).** Store the author name **once** in `author`. `book` holds only `author_id`. Repeating the name on every book invites update anomalies - rename the author and you must fix every book row. See [normalization](../02-designing/normalization.mdx).
+- **FK + ON DELETE.** Use `ON DELETE RESTRICT` for `book.author_id`, `order.customer_id`, and `order_item.book_id` - you should not silently lose books or orders. Use `ON DELETE CASCADE` for `order_item.order_id`: deleting an order should remove its line items, since a line item cannot exist without its order.
+- **CHECK constraints.** `CHECK (price > 0)` on `book` and `CHECK (quantity > 0)` on `order_item` keep nonsense data out at the source.
+- **Composite PK.** `order_item` uses `(order_id, book_id)` as its primary key - one row per book per order, no accidental duplicates.
+
+:::
+
+</details>
+
+Here is the DDL that the design above produces. This is also the schema seeded into every runner on this page.
+
+<details>
+<summary>Show schema (DDL)</summary>
+
+```sql
+CREATE TABLE author (
+  author_id INTEGER PRIMARY KEY,
+  name      TEXT NOT NULL,
+  country   TEXT
+);
+CREATE TABLE customer (
+  customer_id INTEGER PRIMARY KEY,
+  name        TEXT NOT NULL,
+  email       TEXT NOT NULL UNIQUE
+);
+CREATE TABLE book (
+  book_id   INTEGER PRIMARY KEY,
+  title     TEXT NOT NULL,
+  author_id INTEGER NOT NULL REFERENCES author(author_id) ON DELETE RESTRICT,
+  price     REAL NOT NULL CHECK (price > 0)
+);
+CREATE TABLE "order" (
+  order_id    INTEGER PRIMARY KEY,
+  customer_id INTEGER NOT NULL REFERENCES customer(customer_id) ON DELETE RESTRICT,
+  ordered_at  TEXT NOT NULL
+);
+CREATE TABLE order_item (
+  order_id INTEGER NOT NULL REFERENCES "order"(order_id) ON DELETE CASCADE,
+  book_id  INTEGER NOT NULL REFERENCES book(book_id)  ON DELETE RESTRICT,
+  quantity INTEGER NOT NULL CHECK (quantity > 0),
+  PRIMARY KEY (order_id, book_id)
+);
+```
+
+(`order` is a SQL keyword, so it is quoted everywhere it appears.)
+
+</details>
+
+## Task 2 - Populate the bookstore (DML)
+
+The bookstore is already seeded with authors, books, customers, and four orders - three placed in 2026 and one back in 2025, which matters for the date-filtered report in Task 7. Here you practice two writes you will reach for constantly: an **UPSERT** and a write that **returns** what it changed.
+
+**Worked - UPSERT.** Insert an author, but if the id already exists, update its country instead of failing. Run it.
+
+<SqlRunner
+  schema={`CREATE TABLE author (author_id INTEGER PRIMARY KEY, name TEXT NOT NULL, country TEXT);
+CREATE TABLE customer (customer_id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE);
+CREATE TABLE book (book_id INTEGER PRIMARY KEY, title TEXT NOT NULL, author_id INTEGER NOT NULL REFERENCES author(author_id) ON DELETE RESTRICT, price REAL NOT NULL CHECK (price > 0));
+CREATE TABLE "order" (order_id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customer(customer_id) ON DELETE RESTRICT, ordered_at TEXT NOT NULL);
+CREATE TABLE order_item (order_id INTEGER NOT NULL REFERENCES "order"(order_id) ON DELETE CASCADE, book_id INTEGER NOT NULL REFERENCES book(book_id) ON DELETE RESTRICT, quantity INTEGER NOT NULL CHECK (quantity > 0), PRIMARY KEY (order_id, book_id));
+INSERT INTO author VALUES (1,'Ursula K. Le Guin','US'),(2,'Terry Pratchett','UK'),(3,'Octavia E. Butler','US');
+INSERT INTO book VALUES (1,'A Wizard of Earthsea',1,12.00),(2,'The Left Hand of Darkness',1,14.00),(3,'Mort',2,10.00),(4,'Guards! Guards!',2,11.50),(5,'Kindred',3,13.00);
+INSERT INTO customer VALUES (1,'Ada','ada@example.com'),(2,'Bram','bram@example.com');
+INSERT INTO "order" VALUES (1,1,'2026-05-01'),(2,2,'2026-05-03'),(3,1,'2026-02-10'),(5,1,'2025-11-15');
+INSERT INTO order_item VALUES (1,1,1),(1,3,2),(2,2,1),(2,5,3),(3,4,2),(3,1,1),(5,2,5);`}
+  query={`-- UPSERT: insert, or update country if the id already exists.\nINSERT INTO author (author_id, name, country)\nVALUES (3, 'Octavia E. Butler', 'USA')\nON CONFLICT(author_id) DO UPDATE SET country = excluded.country\nRETURNING author_id, name, country;`}
+  height={200}
+/>
+
+**Solo - RETURNING.** Insert a new customer, Cleo (`cleo@example.com`), and have the statement return the row it inserted. Write it, then check.
+
+<SqlRunner
+  schema={`CREATE TABLE author (author_id INTEGER PRIMARY KEY, name TEXT NOT NULL, country TEXT);
+CREATE TABLE customer (customer_id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE);
+CREATE TABLE book (book_id INTEGER PRIMARY KEY, title TEXT NOT NULL, author_id INTEGER NOT NULL REFERENCES author(author_id) ON DELETE RESTRICT, price REAL NOT NULL CHECK (price > 0));
+CREATE TABLE "order" (order_id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customer(customer_id) ON DELETE RESTRICT, ordered_at TEXT NOT NULL);
+CREATE TABLE order_item (order_id INTEGER NOT NULL REFERENCES "order"(order_id) ON DELETE CASCADE, book_id INTEGER NOT NULL REFERENCES book(book_id) ON DELETE RESTRICT, quantity INTEGER NOT NULL CHECK (quantity > 0), PRIMARY KEY (order_id, book_id));
+INSERT INTO author VALUES (1,'Ursula K. Le Guin','US'),(2,'Terry Pratchett','UK'),(3,'Octavia E. Butler','US');
+INSERT INTO book VALUES (1,'A Wizard of Earthsea',1,12.00),(2,'The Left Hand of Darkness',1,14.00),(3,'Mort',2,10.00),(4,'Guards! Guards!',2,11.50),(5,'Kindred',3,13.00);
+INSERT INTO customer VALUES (1,'Ada','ada@example.com'),(2,'Bram','bram@example.com');
+INSERT INTO "order" VALUES (1,1,'2026-05-01'),(2,2,'2026-05-03'),(3,1,'2026-02-10'),(5,1,'2025-11-15');
+INSERT INTO order_item VALUES (1,1,1),(1,3,2),(2,2,1),(2,5,3),(3,4,2),(3,1,1),(5,2,5);`}
+  query={`-- Insert Cleo and return the inserted row.\n`}
+  solution={`INSERT INTO customer (customer_id, name, email)\nVALUES (3, 'Cleo', 'cleo@example.com')\nRETURNING customer_id, name, email;`}
+  height={200}
+/>
+
+<details>
+<summary>Show solution</summary>
+
+:::note
+
+```sql
+INSERT INTO customer (customer_id, name, email)
+VALUES (3, 'Cleo', 'cleo@example.com')
+RETURNING customer_id, name, email;
+```
+
+`RETURNING` saves a follow-up `SELECT` - the write hands you back exactly the row it wrote, including any database-generated values.
+
+:::
+
+</details>
+
+## Task 3 - Query the data (Stage 1)
+
+Five queries, increasing in difficulty: a worked join, a faded aggregate, then three solo. All run against the seeded bookstore.
+
+### 3a. Worked - JOIN
+
+List every book title next to its author's name.
+
+<SqlRunner
+  schema={`CREATE TABLE author (author_id INTEGER PRIMARY KEY, name TEXT NOT NULL, country TEXT);
+CREATE TABLE customer (customer_id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE);
+CREATE TABLE book (book_id INTEGER PRIMARY KEY, title TEXT NOT NULL, author_id INTEGER NOT NULL REFERENCES author(author_id) ON DELETE RESTRICT, price REAL NOT NULL CHECK (price > 0));
+CREATE TABLE "order" (order_id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customer(customer_id) ON DELETE RESTRICT, ordered_at TEXT NOT NULL);
+CREATE TABLE order_item (order_id INTEGER NOT NULL REFERENCES "order"(order_id) ON DELETE CASCADE, book_id INTEGER NOT NULL REFERENCES book(book_id) ON DELETE RESTRICT, quantity INTEGER NOT NULL CHECK (quantity > 0), PRIMARY KEY (order_id, book_id));
+INSERT INTO author VALUES (1,'Ursula K. Le Guin','US'),(2,'Terry Pratchett','UK'),(3,'Octavia E. Butler','US');
+INSERT INTO book VALUES (1,'A Wizard of Earthsea',1,12.00),(2,'The Left Hand of Darkness',1,14.00),(3,'Mort',2,10.00),(4,'Guards! Guards!',2,11.50),(5,'Kindred',3,13.00);
+INSERT INTO customer VALUES (1,'Ada','ada@example.com'),(2,'Bram','bram@example.com');
+INSERT INTO "order" VALUES (1,1,'2026-05-01'),(2,2,'2026-05-03'),(3,1,'2026-02-10'),(5,1,'2025-11-15');
+INSERT INTO order_item VALUES (1,1,1),(1,3,2),(2,2,1),(2,5,3),(3,4,2),(3,1,1),(5,2,5);`}
+  query={`SELECT b.title, a.name AS author\nFROM book b\nJOIN author a ON a.author_id = b.author_id\nORDER BY a.name, b.title;`}
+  height={200}
+/>
+
+### 3b. Faded - aggregate with GROUP BY / HAVING
+
+Total **units sold per author**, keeping only authors who sold **3 or more** units, highest first. Fill the blanks (`____`), then run.
+
+<SqlRunner
+  schema={`CREATE TABLE author (author_id INTEGER PRIMARY KEY, name TEXT NOT NULL, country TEXT);
+CREATE TABLE customer (customer_id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE);
+CREATE TABLE book (book_id INTEGER PRIMARY KEY, title TEXT NOT NULL, author_id INTEGER NOT NULL REFERENCES author(author_id) ON DELETE RESTRICT, price REAL NOT NULL CHECK (price > 0));
+CREATE TABLE "order" (order_id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customer(customer_id) ON DELETE RESTRICT, ordered_at TEXT NOT NULL);
+CREATE TABLE order_item (order_id INTEGER NOT NULL REFERENCES "order"(order_id) ON DELETE CASCADE, book_id INTEGER NOT NULL REFERENCES book(book_id) ON DELETE RESTRICT, quantity INTEGER NOT NULL CHECK (quantity > 0), PRIMARY KEY (order_id, book_id));
+INSERT INTO author VALUES (1,'Ursula K. Le Guin','US'),(2,'Terry Pratchett','UK'),(3,'Octavia E. Butler','US');
+INSERT INTO book VALUES (1,'A Wizard of Earthsea',1,12.00),(2,'The Left Hand of Darkness',1,14.00),(3,'Mort',2,10.00),(4,'Guards! Guards!',2,11.50),(5,'Kindred',3,13.00);
+INSERT INTO customer VALUES (1,'Ada','ada@example.com'),(2,'Bram','bram@example.com');
+INSERT INTO "order" VALUES (1,1,'2026-05-01'),(2,2,'2026-05-03'),(3,1,'2026-02-10'),(5,1,'2025-11-15');
+INSERT INTO order_item VALUES (1,1,1),(1,3,2),(2,2,1),(2,5,3),(3,4,2),(3,1,1),(5,2,5);`}
+  query={`SELECT a.name, SUM(oi.quantity) AS units\nFROM order_item oi\nJOIN book b   ON b.book_id = oi.book_id\nJOIN author a ON a.author_id = b.author_id\n____ a.author_id\n____ SUM(oi.quantity) >= 3\nORDER BY units DESC;`}
+  solution={`SELECT a.name, SUM(oi.quantity) AS units\nFROM order_item oi\nJOIN book b   ON b.book_id = oi.book_id\nJOIN author a ON a.author_id = b.author_id\nGROUP BY a.author_id\nHAVING SUM(oi.quantity) >= 3\nORDER BY units DESC;`}
+  height={240}
+/>
+
+<details>
+<summary>Show solution</summary>
+
+:::note
+
+```sql
+SELECT a.name, SUM(oi.quantity) AS units
+FROM order_item oi
+JOIN book b   ON b.book_id = oi.book_id
+JOIN author a ON a.author_id = b.author_id
+GROUP BY a.author_id
+HAVING SUM(oi.quantity) >= 3
+ORDER BY units DESC;
+```
+
+`GROUP BY` collapses rows per author; `HAVING` filters **after** aggregation (a `WHERE` cannot reference `SUM`).
+
+:::
+
+</details>
+
+### 3c. Solo - subquery with EXISTS
+
+List the names of customers who have placed at least one order. Use `EXISTS`. Write it, then check.
+
+<SqlRunner
+  schema={`CREATE TABLE author (author_id INTEGER PRIMARY KEY, name TEXT NOT NULL, country TEXT);
+CREATE TABLE customer (customer_id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE);
+CREATE TABLE book (book_id INTEGER PRIMARY KEY, title TEXT NOT NULL, author_id INTEGER NOT NULL REFERENCES author(author_id) ON DELETE RESTRICT, price REAL NOT NULL CHECK (price > 0));
+CREATE TABLE "order" (order_id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customer(customer_id) ON DELETE RESTRICT, ordered_at TEXT NOT NULL);
+CREATE TABLE order_item (order_id INTEGER NOT NULL REFERENCES "order"(order_id) ON DELETE CASCADE, book_id INTEGER NOT NULL REFERENCES book(book_id) ON DELETE RESTRICT, quantity INTEGER NOT NULL CHECK (quantity > 0), PRIMARY KEY (order_id, book_id));
+INSERT INTO author VALUES (1,'Ursula K. Le Guin','US'),(2,'Terry Pratchett','UK'),(3,'Octavia E. Butler','US');
+INSERT INTO book VALUES (1,'A Wizard of Earthsea',1,12.00),(2,'The Left Hand of Darkness',1,14.00),(3,'Mort',2,10.00),(4,'Guards! Guards!',2,11.50),(5,'Kindred',3,13.00);
+INSERT INTO customer VALUES (1,'Ada','ada@example.com'),(2,'Bram','bram@example.com');
+INSERT INTO "order" VALUES (1,1,'2026-05-01'),(2,2,'2026-05-03'),(3,1,'2026-02-10'),(5,1,'2025-11-15');
+INSERT INTO order_item VALUES (1,1,1),(1,3,2),(2,2,1),(2,5,3),(3,4,2),(3,1,1),(5,2,5);`}
+  query={`-- Customers with at least one order, using EXISTS.\n`}
+  solution={`SELECT c.name\nFROM customer c\nWHERE EXISTS (SELECT 1 FROM "order" o WHERE o.customer_id = c.customer_id);`}
+  height={200}
+/>
+
+<details>
+<summary>Show solution</summary>
+
+:::note
+
+```sql
+SELECT c.name
+FROM customer c
+WHERE EXISTS (SELECT 1 FROM "order" o WHERE o.customer_id = c.customer_id);
+```
+
+`EXISTS` stops at the first matching order - it asks "is there any?", not "how many?". It avoids duplicate customer rows that a plain `JOIN` would produce.
+
+:::
+
+</details>
+
+### 3d. Solo - common table expression (CTE)
+
+Using a CTE that computes each line item's revenue (`price * quantity`), report **total revenue per book title**, highest first. Write it, then check.
+
+<SqlRunner
+  schema={`CREATE TABLE author (author_id INTEGER PRIMARY KEY, name TEXT NOT NULL, country TEXT);
+CREATE TABLE customer (customer_id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE);
+CREATE TABLE book (book_id INTEGER PRIMARY KEY, title TEXT NOT NULL, author_id INTEGER NOT NULL REFERENCES author(author_id) ON DELETE RESTRICT, price REAL NOT NULL CHECK (price > 0));
+CREATE TABLE "order" (order_id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customer(customer_id) ON DELETE RESTRICT, ordered_at TEXT NOT NULL);
+CREATE TABLE order_item (order_id INTEGER NOT NULL REFERENCES "order"(order_id) ON DELETE CASCADE, book_id INTEGER NOT NULL REFERENCES book(book_id) ON DELETE RESTRICT, quantity INTEGER NOT NULL CHECK (quantity > 0), PRIMARY KEY (order_id, book_id));
+INSERT INTO author VALUES (1,'Ursula K. Le Guin','US'),(2,'Terry Pratchett','UK'),(3,'Octavia E. Butler','US');
+INSERT INTO book VALUES (1,'A Wizard of Earthsea',1,12.00),(2,'The Left Hand of Darkness',1,14.00),(3,'Mort',2,10.00),(4,'Guards! Guards!',2,11.50),(5,'Kindred',3,13.00);
+INSERT INTO customer VALUES (1,'Ada','ada@example.com'),(2,'Bram','bram@example.com');
+INSERT INTO "order" VALUES (1,1,'2026-05-01'),(2,2,'2026-05-03'),(3,1,'2026-02-10'),(5,1,'2025-11-15');
+INSERT INTO order_item VALUES (1,1,1),(1,3,2),(2,2,1),(2,5,3),(3,4,2),(3,1,1),(5,2,5);`}
+  query={`-- Use WITH ... AS (...) to compute line revenue, then sum per title.\n`}
+  solution={`WITH line_revenue AS (\n  SELECT oi.book_id, b.price * oi.quantity AS rev\n  FROM order_item oi\n  JOIN book b ON b.book_id = oi.book_id\n)\nSELECT b.title, SUM(lr.rev) AS revenue\nFROM line_revenue lr\nJOIN book b ON b.book_id = lr.book_id\nGROUP BY b.book_id\nORDER BY revenue DESC;`}
+  height={240}
+/>
+
+<details>
+<summary>Show solution</summary>
+
+:::note
+
+```sql
+WITH line_revenue AS (
+  SELECT oi.book_id, b.price * oi.quantity AS rev
+  FROM order_item oi
+  JOIN book b ON b.book_id = oi.book_id
+)
+SELECT b.title, SUM(lr.rev) AS revenue
+FROM line_revenue lr
+JOIN book b ON b.book_id = lr.book_id
+GROUP BY b.book_id
+ORDER BY revenue DESC;
+```
+
+The CTE names an intermediate result so the final query reads top-down. It is the readable alternative to nesting the subquery inline.
+
+:::
+
+</details>
+
+### 3e. Solo - window function ranking
+
+Rank each author's books by revenue **within that author** (revenue = `price * quantity` summed over sales). Use `RANK() OVER (PARTITION BY ... ORDER BY ...)`. Write it, then check.
+
+<SqlRunner
+  schema={`CREATE TABLE author (author_id INTEGER PRIMARY KEY, name TEXT NOT NULL, country TEXT);
+CREATE TABLE customer (customer_id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE);
+CREATE TABLE book (book_id INTEGER PRIMARY KEY, title TEXT NOT NULL, author_id INTEGER NOT NULL REFERENCES author(author_id) ON DELETE RESTRICT, price REAL NOT NULL CHECK (price > 0));
+CREATE TABLE "order" (order_id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customer(customer_id) ON DELETE RESTRICT, ordered_at TEXT NOT NULL);
+CREATE TABLE order_item (order_id INTEGER NOT NULL REFERENCES "order"(order_id) ON DELETE CASCADE, book_id INTEGER NOT NULL REFERENCES book(book_id) ON DELETE RESTRICT, quantity INTEGER NOT NULL CHECK (quantity > 0), PRIMARY KEY (order_id, book_id));
+INSERT INTO author VALUES (1,'Ursula K. Le Guin','US'),(2,'Terry Pratchett','UK'),(3,'Octavia E. Butler','US');
+INSERT INTO book VALUES (1,'A Wizard of Earthsea',1,12.00),(2,'The Left Hand of Darkness',1,14.00),(3,'Mort',2,10.00),(4,'Guards! Guards!',2,11.50),(5,'Kindred',3,13.00);
+INSERT INTO customer VALUES (1,'Ada','ada@example.com'),(2,'Bram','bram@example.com');
+INSERT INTO "order" VALUES (1,1,'2026-05-01'),(2,2,'2026-05-03'),(3,1,'2026-02-10'),(5,1,'2025-11-15');
+INSERT INTO order_item VALUES (1,1,1),(1,3,2),(2,2,1),(2,5,3),(3,4,2),(3,1,1),(5,2,5);`}
+  query={`-- Rank books by revenue, restarting the rank for each author.\n`}
+  solution={`SELECT a.name AS author, b.title,\n       SUM(b.price * oi.quantity) AS revenue,\n       RANK() OVER (PARTITION BY a.author_id\n                    ORDER BY SUM(b.price * oi.quantity) DESC) AS rnk\nFROM order_item oi\nJOIN book b   ON b.book_id = oi.book_id\nJOIN author a ON a.author_id = b.author_id\nGROUP BY a.author_id, a.name, b.book_id, b.title\nORDER BY a.name, rnk;`}
+  height={260}
+/>
+
+<details>
+<summary>Show solution</summary>
+
+:::note
+
+```sql
+SELECT a.name AS author, b.title,
+       SUM(b.price * oi.quantity) AS revenue,
+       RANK() OVER (PARTITION BY a.author_id
+                    ORDER BY SUM(b.price * oi.quantity) DESC) AS rnk
+FROM order_item oi
+JOIN book b   ON b.book_id = oi.book_id
+JOIN author a ON a.author_id = b.author_id
+GROUP BY a.author_id, a.name, b.book_id, b.title
+ORDER BY a.name, rnk;
+```
+
+`PARTITION BY` restarts the ranking per author, so each author's best seller is rank 1. Unlike `GROUP BY`, the window keeps one row per book.
+
+:::
+
+</details>
+
+## Task 4 - Make a lookup fast (Stage 3)
+
+**Books are looked up by author constantly.** Confirm the planner scans, add an index, then confirm the plan changes.
+
+**Worked - read the plan.** Run the `EXPLAIN QUERY PLAN` below as-is. On the un-indexed table you will see `SCAN book`.
+
+<SqlRunner
+  schema={`CREATE TABLE author (author_id INTEGER PRIMARY KEY, name TEXT NOT NULL, country TEXT);
+CREATE TABLE customer (customer_id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE);
+CREATE TABLE book (book_id INTEGER PRIMARY KEY, title TEXT NOT NULL, author_id INTEGER NOT NULL REFERENCES author(author_id) ON DELETE RESTRICT, price REAL NOT NULL CHECK (price > 0));
+CREATE TABLE "order" (order_id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customer(customer_id) ON DELETE RESTRICT, ordered_at TEXT NOT NULL);
+CREATE TABLE order_item (order_id INTEGER NOT NULL REFERENCES "order"(order_id) ON DELETE CASCADE, book_id INTEGER NOT NULL REFERENCES book(book_id) ON DELETE RESTRICT, quantity INTEGER NOT NULL CHECK (quantity > 0), PRIMARY KEY (order_id, book_id));
+INSERT INTO author VALUES (1,'Ursula K. Le Guin','US'),(2,'Terry Pratchett','UK'),(3,'Octavia E. Butler','US');
+INSERT INTO book VALUES (1,'A Wizard of Earthsea',1,12.00),(2,'The Left Hand of Darkness',1,14.00),(3,'Mort',2,10.00),(4,'Guards! Guards!',2,11.50),(5,'Kindred',3,13.00);
+INSERT INTO customer VALUES (1,'Ada','ada@example.com'),(2,'Bram','bram@example.com');
+INSERT INTO "order" VALUES (1,1,'2026-05-01'),(2,2,'2026-05-03'),(3,1,'2026-02-10'),(5,1,'2025-11-15');
+INSERT INTO order_item VALUES (1,1,1),(1,3,2),(2,2,1),(2,5,3),(3,4,2),(3,1,1),(5,2,5);`}
+  query={`EXPLAIN QUERY PLAN\nSELECT * FROM book WHERE author_id = 2;`}
+  height={160}
+/>
+
+**Solo - add the index, re-check.** Create an index on `book(author_id)`, then run the same plan again. It should switch to `SEARCH book USING INDEX ...`. Write the two statements, then check.
+
+<SqlRunner
+  schema={`CREATE TABLE author (author_id INTEGER PRIMARY KEY, name TEXT NOT NULL, country TEXT);
+CREATE TABLE customer (customer_id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE);
+CREATE TABLE book (book_id INTEGER PRIMARY KEY, title TEXT NOT NULL, author_id INTEGER NOT NULL REFERENCES author(author_id) ON DELETE RESTRICT, price REAL NOT NULL CHECK (price > 0));
+CREATE TABLE "order" (order_id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customer(customer_id) ON DELETE RESTRICT, ordered_at TEXT NOT NULL);
+CREATE TABLE order_item (order_id INTEGER NOT NULL REFERENCES "order"(order_id) ON DELETE CASCADE, book_id INTEGER NOT NULL REFERENCES book(book_id) ON DELETE RESTRICT, quantity INTEGER NOT NULL CHECK (quantity > 0), PRIMARY KEY (order_id, book_id));
+INSERT INTO author VALUES (1,'Ursula K. Le Guin','US'),(2,'Terry Pratchett','UK'),(3,'Octavia E. Butler','US');
+INSERT INTO book VALUES (1,'A Wizard of Earthsea',1,12.00),(2,'The Left Hand of Darkness',1,14.00),(3,'Mort',2,10.00),(4,'Guards! Guards!',2,11.50),(5,'Kindred',3,13.00);
+INSERT INTO customer VALUES (1,'Ada','ada@example.com'),(2,'Bram','bram@example.com');
+INSERT INTO "order" VALUES (1,1,'2026-05-01'),(2,2,'2026-05-03'),(3,1,'2026-02-10'),(5,1,'2025-11-15');
+INSERT INTO order_item VALUES (1,1,1),(1,3,2),(2,2,1),(2,5,3),(3,4,2),(3,1,1),(5,2,5);`}
+  query={`-- 1) add an index on book(author_id)\n-- 2) re-run EXPLAIN QUERY PLAN for the same SELECT\n`}
+  height={200}
+/>
+
+<details>
+<summary>Show solution</summary>
+
+:::note
+
+```sql
+CREATE INDEX idx_book_author ON book(author_id);
+
+EXPLAIN QUERY PLAN
+SELECT * FROM book WHERE author_id = 2;
+```
+
+The plan flips from `SCAN book` to `SEARCH book USING INDEX idx_book_author (author_id=?)`. **SCAN** reads every row; **SEARCH** jumps to matches via the index.
+
+**Index choice.** If a query also reads columns, a **composite/covering index** like `book(author_id, title)` lets SQLite answer from the index alone - no table lookup. Index the columns you filter and sort on, in that order; do not index everything, since each index slows writes.
+
+:::
+
+</details>
+
+## Task 5 - Get a write right (Stage 3)
+
+**Placing an order is two writes that must both succeed or both fail:** insert the `order`, then insert its `order_item` rows. Wrap them in a transaction.
+
+If the second insert fails - say a `book_id` does not exist - you must not leave a headless order behind. A transaction makes the pair **atomic**: `COMMIT` keeps both, `ROLLBACK` discards both.
+
+**Worked.** Run this transaction to place a new order for Bram, then inspect the result.
+
+<SqlRunner
+  schema={`CREATE TABLE author (author_id INTEGER PRIMARY KEY, name TEXT NOT NULL, country TEXT);
+CREATE TABLE customer (customer_id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE);
+CREATE TABLE book (book_id INTEGER PRIMARY KEY, title TEXT NOT NULL, author_id INTEGER NOT NULL REFERENCES author(author_id) ON DELETE RESTRICT, price REAL NOT NULL CHECK (price > 0));
+CREATE TABLE "order" (order_id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customer(customer_id) ON DELETE RESTRICT, ordered_at TEXT NOT NULL);
+CREATE TABLE order_item (order_id INTEGER NOT NULL REFERENCES "order"(order_id) ON DELETE CASCADE, book_id INTEGER NOT NULL REFERENCES book(book_id) ON DELETE RESTRICT, quantity INTEGER NOT NULL CHECK (quantity > 0), PRIMARY KEY (order_id, book_id));
+INSERT INTO author VALUES (1,'Ursula K. Le Guin','US'),(2,'Terry Pratchett','UK'),(3,'Octavia E. Butler','US');
+INSERT INTO book VALUES (1,'A Wizard of Earthsea',1,12.00),(2,'The Left Hand of Darkness',1,14.00),(3,'Mort',2,10.00),(4,'Guards! Guards!',2,11.50),(5,'Kindred',3,13.00);
+INSERT INTO customer VALUES (1,'Ada','ada@example.com'),(2,'Bram','bram@example.com');
+INSERT INTO "order" VALUES (1,1,'2026-05-01'),(2,2,'2026-05-03'),(3,1,'2026-02-10'),(5,1,'2025-11-15');
+INSERT INTO order_item VALUES (1,1,1),(1,3,2),(2,2,1),(2,5,3),(3,4,2),(3,1,1),(5,2,5);`}
+  query={`BEGIN;\n  INSERT INTO "order" (order_id, customer_id, ordered_at)\n  VALUES (4, 2, '2026-06-18');\n  INSERT INTO order_item (order_id, book_id, quantity)\n  VALUES (4, 2, 1), (4, 4, 2);\nCOMMIT;\n\nSELECT * FROM order_item WHERE order_id = 4;`}
+  height={240}
+/>
+
+<details>
+<summary>Why a transaction (rollback reasoning)</summary>
+
+:::note
+
+Without a transaction, if the order row commits but the line-item insert then fails, you are left with an **order containing no books** - corrupt data no later query can trust.
+
+Inside `BEGIN ... COMMIT`, the writes are provisional. If any step errors, issue `ROLLBACK` and the database returns to its exact prior state, as if nothing happened. This is the **A** (atomicity) in ACID - revisit [transactions](../03-correct-and-fast/transactions.mdx).
+
+:::
+
+</details>
+
+## Task 6 - Secure and operate (Stage 4)
+
+**A reporting service should read everything and change nothing.** That is least privilege: grant only what the job needs. This is server-side **DCL** - it runs in PostgreSQL, **not** in this SQLite sandbox, so the block below is for reading, not running.
+
+<details>
+<summary>Show least-privilege role (PostgreSQL DCL)</summary>
+
+:::note
+
+```sql
+-- A role that can read the bookstore and nothing else.
+CREATE ROLE reporting LOGIN PASSWORD 'set-a-real-secret';
+GRANT CONNECT ON DATABASE bookstore TO reporting;
+GRANT USAGE ON SCHEMA public TO reporting;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO reporting;
+
+-- Make future tables readable too:
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT SELECT ON TABLES TO reporting;
+```
+
+No `INSERT`/`UPDATE`/`DELETE` is granted, so the role reads everything and writes nothing. If this account leaks, the blast radius is read-only. Recall [access control](../04-real-apps/dcl.mdx).
+
+:::
+
+</details>
+
+<details>
+<summary>Parameterized queries vs SQL injection</summary>
+
+:::note
+
+Never build SQL by concatenating user input:
+
+```text
+-- DANGEROUS: a search of  x'; DROP TABLE book; --  becomes runnable SQL.
+"SELECT * FROM book WHERE title = '" + userInput + "'"
+```
+
+Use a **parameterized query** - the driver sends the SQL and the values separately, so input is always treated as data, never as code:
+
+```sql
+SELECT * FROM book WHERE title = ?;   -- bind userInput to ?
+```
+
+This closes the injection door and lets the database cache the query plan.
+
+:::
+
+</details>
+
+## Task 7 - Capstone finale: the revenue report
+
+**One harder task that combines a CTE, a window function, and joins across four tables.** No partial scaffolding - write it from scratch.
+
+**Goal:** find the **top-earning author of 2026**. Sum each author's revenue (`price * quantity`) from orders placed in **2026** (`ordered_at` from `2026-01-01` up to but not including `2027-01-01`), rank authors by that revenue with a window function inside a CTE, and return only the rank-1 author with their total.
+
+Write your query, run it, then check.
+
+<SqlRunner
+  schema={`CREATE TABLE author (author_id INTEGER PRIMARY KEY, name TEXT NOT NULL, country TEXT);
+CREATE TABLE customer (customer_id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE);
+CREATE TABLE book (book_id INTEGER PRIMARY KEY, title TEXT NOT NULL, author_id INTEGER NOT NULL REFERENCES author(author_id) ON DELETE RESTRICT, price REAL NOT NULL CHECK (price > 0));
+CREATE TABLE "order" (order_id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customer(customer_id) ON DELETE RESTRICT, ordered_at TEXT NOT NULL);
+CREATE TABLE order_item (order_id INTEGER NOT NULL REFERENCES "order"(order_id) ON DELETE CASCADE, book_id INTEGER NOT NULL REFERENCES book(book_id) ON DELETE RESTRICT, quantity INTEGER NOT NULL CHECK (quantity > 0), PRIMARY KEY (order_id, book_id));
+INSERT INTO author VALUES (1,'Ursula K. Le Guin','US'),(2,'Terry Pratchett','UK'),(3,'Octavia E. Butler','US');
+INSERT INTO book VALUES (1,'A Wizard of Earthsea',1,12.00),(2,'The Left Hand of Darkness',1,14.00),(3,'Mort',2,10.00),(4,'Guards! Guards!',2,11.50),(5,'Kindred',3,13.00);
+INSERT INTO customer VALUES (1,'Ada','ada@example.com'),(2,'Bram','bram@example.com');
+INSERT INTO "order" VALUES (1,1,'2026-05-01'),(2,2,'2026-05-03'),(3,1,'2026-02-10'),(5,1,'2025-11-15');
+INSERT INTO order_item VALUES (1,1,1),(1,3,2),(2,2,1),(2,5,3),(3,4,2),(3,1,1),(5,2,5);`}
+  query={`-- Top-earning author of 2026.\n-- CTE 1: revenue per author from 2026 orders.\n-- CTE 2: RANK() over that revenue.\n-- Final: return only rank 1.\n`}
+  solution={`WITH author_revenue AS (\n  SELECT a.author_id, a.name,\n         SUM(b.price * oi.quantity) AS revenue\n  FROM "order" o\n  JOIN order_item oi ON oi.order_id = o.order_id\n  JOIN book b        ON b.book_id = oi.book_id\n  JOIN author a      ON a.author_id = b.author_id\n  WHERE o.ordered_at >= '2026-01-01' AND o.ordered_at < '2027-01-01'\n  GROUP BY a.author_id, a.name\n),\nranked AS (\n  SELECT name, revenue,\n         RANK() OVER (ORDER BY revenue DESC) AS rnk\n  FROM author_revenue\n)\nSELECT name, revenue FROM ranked WHERE rnk = 1;`}
+  height={300}
+/>
+
+<details>
+<summary>Show solution</summary>
+
+:::note
+
+```sql
+WITH author_revenue AS (
+  SELECT a.author_id, a.name,
+         SUM(b.price * oi.quantity) AS revenue
+  FROM "order" o
+  JOIN order_item oi ON oi.order_id = o.order_id
+  JOIN book b        ON b.book_id = oi.book_id
+  JOIN author a      ON a.author_id = b.author_id
+  WHERE o.ordered_at >= '2026-01-01' AND o.ordered_at < '2027-01-01'
+  GROUP BY a.author_id, a.name
+),
+ranked AS (
+  SELECT name, revenue,
+         RANK() OVER (ORDER BY revenue DESC) AS rnk
+  FROM author_revenue
+)
+SELECT name, revenue FROM ranked WHERE rnk = 1;
+```
+
+This stacks four skills: a **four-table join**, a date-range **filter**, **GROUP BY** aggregation in the first CTE, and a **window RANK** in the second so the outer query can keep just rank 1. Returning the rank-1 row needs the window's output, which is why the ranking lives in its own CTE.
+
+The date filter earns its place: order 5 was placed in 2025 and is a large Le Guin sale. Drop the `WHERE o.ordered_at >= '2026-01-01' AND o.ordered_at < '2027-01-01'` and Le Guin wins on that 2025 revenue; keep it and the rank-1 author for 2026 is **Terry Pratchett**. If your answer changes when you remove the filter, the filter is doing real work.
+
+:::
+
+</details>
+
+## You did it - the whole arc
+
+You ran the full path on one project. Each task was a stage:
+
+- **Task 1 - Design (Stage 2):** keys, normalization, foreign keys, and CHECK constraints, with justified choices.
+- **Task 2 - Populate (DML):** seed data, an UPSERT, and RETURNING.
+- **Task 3 - Query (Stage 1):** join, aggregate with HAVING, EXISTS subquery, CTE, and a window ranking.
+- **Task 4 - Performance (Stage 3):** read a query plan, add an index, watch SCAN become SEARCH.
+- **Task 5 - Correctness (Stage 3):** a transaction making a multi-step write atomic.
+- **Task 6 - Security/ops (Stage 4):** a least-privilege role and parameterized queries against injection.
+- **Task 7 - Finale:** one report combining a CTE, a window function, and a four-table join.
+
+:::tip Keep going
+Swap in your own domain - a habit tracker, a recipe box, a game's leaderboard - and run the same seven tasks. Designing and defending your own schema is the best practice there is.
+:::

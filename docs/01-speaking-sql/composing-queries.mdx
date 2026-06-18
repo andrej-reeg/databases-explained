@@ -1,0 +1,109 @@
+---
+sidebar_position: 6
+title: CTEs and set operations
+sidebar_label: CTEs & set ops
+description: Keep growing queries readable with common table expressions (WITH), and combine query results with UNION, INTERSECT, and EXCEPT.
+---
+
+import SqlRunner from '@site/src/components/SqlRunner';
+import Quiz from '@site/src/components/Quiz';
+
+# CTEs and set operations
+
+As questions get harder, queries get longer. Two tools keep them readable: **common table expressions** name a subquery so you can build a query in steps, and **set operations** stack the results of several queries into one. Both boxes below are live.
+
+## Common table expressions (CTE)
+
+A subquery buried inside another query is hard to read inside-out. A **CTE** lifts it out, gives it a name with **`WITH`**, and lets the main query read it like a table. Same result as a subquery - far easier to follow.
+
+<SqlRunner
+  query={`WITH spend AS (
+  SELECT customer_id, SUM(total) AS total_spent
+  FROM orders
+  GROUP BY customer_id
+)
+SELECT customers.name, spend.total_spent
+FROM spend
+JOIN customers ON customers.id = spend.customer_id
+WHERE spend.total_spent > 30
+ORDER BY spend.total_spent DESC;`}
+  height={210}
+/>
+
+Read it top-down: first build `spend` (one row per customer with their total), then join it to `customers` and filter. You can define several CTEs separated by commas, and each can build on the one before. A CTE can even reference itself - a **recursive CTE** - to walk hierarchies like an org chart or a category tree (a topic for later).
+
+## Set operations: stacking results
+
+Set operations combine the rows of two `SELECT`s that return the **same columns**. Think of them as the maths of result sets.
+
+- **`UNION`** - all rows from both, with duplicates removed.
+- **`UNION ALL`** - all rows from both, duplicates **kept**. Faster, because it skips the de-duplication step - use it when you know there are no duplicates or you want them.
+- **`INTERSECT`** - only rows that appear in **both**.
+- **`EXCEPT`** - rows in the first query but **not** the second.
+
+"Which customers have placed an order?" is an intersection of customer ids:
+
+<SqlRunner query={`SELECT id FROM customers
+INTERSECT
+SELECT customer_id FROM orders;`} height={120} />
+
+"Which customers have **never** ordered?" is the difference - try swapping `EXCEPT` for `INTERSECT` above, or run:
+
+<SqlRunner query={`SELECT id FROM customers
+EXCEPT
+SELECT customer_id FROM orders;`} height={120} />
+
+## CTE, view, or subquery?
+
+All three let you reuse a query result, but they differ in scope and lifetime.
+
+| | CTE | View | Subquery |
+|---|---|---|---|
+| What it is | Named temporary result inside **one** statement | A saved query stored as a **database object** | A query nested inside another |
+| Defined with | `WITH name AS (...)` | `CREATE VIEW name AS ...` | parentheses, inline |
+| Lives | Only for that one statement | Until you drop it; reusable across queries | Only where it sits |
+| Best for | Breaking one complex query into readable steps | A query many queries reuse | A small one-off computation |
+
+Rule of thumb: reach for a **subquery** for a quick one-off, a **CTE** when one query gets long enough to hurt, and a **view** when several different queries need the same shaped result.
+
+## Quick quiz
+
+<Quiz
+  title="Composing queries"
+  questions={[
+    {
+      prompt: "What is the difference between UNION and UNION ALL?",
+      options: [
+        {text: "UNION removes duplicate rows; UNION ALL keeps all rows", correct: true},
+        {text: "They return the same result", correct: false},
+        {text: "UNION ALL removes duplicates; UNION keeps them", correct: false},
+        {text: "UNION can only combine two tables", correct: false},
+      ],
+      explanation: "UNION de-duplicates the combined rows; UNION ALL keeps every row (and is faster because it skips that step).",
+    },
+    {
+      prompt: "What does a common table expression (CTE) give you?",
+      options: [
+        {text: "A named temporary result inside one statement, to build a query in readable steps", correct: true},
+        {text: "A permanent table stored on disk", correct: false},
+        {text: "A way to grant permissions", correct: false},
+        {text: "Automatic indexing of any query", correct: false},
+      ],
+      explanation: "A CTE (WITH) names a result for use within the same statement. It is not persisted - that would be a view or a table.",
+    },
+    {
+      prompt: "You need \"customers who appear in both the loyalty list and the orders table.\" Which set operation fits?",
+      options: [
+        {text: "INTERSECT", correct: true},
+        {text: "UNION", correct: false},
+        {text: "EXCEPT", correct: false},
+        {text: "CROSS JOIN", correct: false},
+      ],
+      explanation: "INTERSECT returns rows present in both result sets. UNION merges them, EXCEPT subtracts, and CROSS JOIN pairs every row with every other.",
+    },
+  ]}
+/>
+
+:::tip Next up
+**[Window functions](./window-functions.mdx)** - running totals, ranks, and row-to-row comparisons across a window of rows, without collapsing them.
+:::

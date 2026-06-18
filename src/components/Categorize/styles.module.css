@@ -1,0 +1,96 @@
+.box {
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: var(--ifm-global-radius);
+  padding: 1rem 1.25rem;
+  margin: 1.5rem 0;
+  background: var(--ifm-background-surface-color);
+}
+
+.prompt {
+  margin: 0 0 0.75rem;
+  font-weight: 600;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.row:first-child {
+  border-top: none;
+}
+
+.text {
+  flex: 1 1 14rem;
+}
+
+.btns {
+  display: inline-flex;
+  gap: 0.4rem;
+}
+
+.btn {
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: var(--ifm-global-radius);
+  background: var(--ifm-background-color);
+  color: var(--ifm-font-color-base);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--ifm-color-primary);
+  background: var(--ifm-color-emphasis-100);
+}
+
+.btn:disabled {
+  cursor: default;
+}
+
+.right {
+  border-color: var(--ifm-color-success);
+  background: var(--ifm-color-success-contrast-background);
+  color: var(--ifm-color-success-contrast-foreground);
+}
+
+.wrong {
+  border-color: var(--ifm-color-danger);
+  background: var(--ifm-color-danger-contrast-background);
+  color: var(--ifm-color-danger-contrast-foreground);
+}
+
+.tag {
+  flex: 0 0 6rem;
+  width: 6rem;
+  margin-left: auto;
+  text-align: right;
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ok {
+  color: var(--ifm-color-success);
+}
+
+.no {
+  color: var(--ifm-color-danger);
+}
+
+.score {
+  margin: 0.75rem 0 0;
+  font-weight: 700;
+}

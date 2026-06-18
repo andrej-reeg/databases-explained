@@ -1,0 +1,284 @@
+---
+title: Stage 2 review
+sidebar_label: Stage 2 review
+description: Cumulative Stage 2 review - design challenges on keys, constraints, FK cascade, ER cardinality, and normalization, plus a runnable CHECK example, a comprehensive quiz, and a design cheatsheet.
+sidebar_position: 6
+---
+
+import SqlRunner from '@site/src/components/SqlRunner';
+import Quiz from '@site/src/components/Quiz';
+
+# Stage 2 review
+
+This page pulls Stage 2 together. **Design judgement is the skill** - keys, constraints, relationships, and normal forms working as one. Work the challenges before opening the answers, then test yourself on the quiz and keep the cheatsheet handy.
+
+If any challenge stumps you, the linked lesson is the place to go back: [DDL](./ddl.mdx), [ER modeling](./er-modeling.mdx), [Normalization](./normalization.mdx), [Functions](./functions.mdx).
+
+## Design challenges
+
+### Challenge 1 - Write the DDL with the right keys and constraints
+
+A library lends **books** to **members**. A member has a name and a unique email. A book has a title and an ISBN. A **loan** records which member borrowed which book and when; a member may borrow the same book again later. Write `CREATE TABLE` statements with sensible **primary keys**, a **unique** email, **foreign keys**, and a **CHECK** that a due date is not before the loan date.
+
+<details>
+<summary>Show a solution</summary>
+
+```sql
+CREATE TABLE member (
+  id    INTEGER PRIMARY KEY,
+  name  TEXT NOT NULL,
+  email TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE book (
+  id    INTEGER PRIMARY KEY,
+  title TEXT NOT NULL,
+  isbn  TEXT UNIQUE
+);
+
+CREATE TABLE loan (
+  id         INTEGER PRIMARY KEY,
+  member_id  INTEGER NOT NULL REFERENCES member(id) ON DELETE RESTRICT,
+  book_id    INTEGER NOT NULL REFERENCES book(id)   ON DELETE RESTRICT,
+  loaned_on  TEXT NOT NULL,
+  due_on     TEXT NOT NULL,
+  CHECK (due_on >= loaned_on)
+);
+```
+
+Key decisions: a **surrogate** `id` on `loan` (not a composite of `member_id, book_id`) because the **same pair can repeat** - the same member borrows the same book on different dates. `email` is `UNIQUE` but kept as a regular column, not the key, so it can change without rewriting references. `RESTRICT` on the loans stops you deleting a member or book that still has active loans.
+
+</details>
+
+### Challenge 2 - Spot the normalization anomaly
+
+A team stores enrolments in one table:
+
+| enrolment_id | student_id | student_email | course_id | course_title |
+|---|---|---|---|---|
+| 1 | 7 | sam@u.test | C10 | Databases |
+| 2 | 7 | sam@u.test | C20 | Networks |
+| 3 | 9 | ada@u.test | C10 | Databases |
+
+Which **normal form** does `course_title` break, and which does `student_email` break? Name the anomaly that bites when course "C10" is renamed.
+
+<details>
+<summary>Show the answer</summary>
+
+Both columns are **transitive dependencies** - non-key columns depending on another non-key column - which is a **3NF** violation:
+
+- `course_title` depends on `course_id`, not on the `enrolment_id` key. It belongs in a `course` table.
+- `student_email` depends on `student_id`, not on the key. It belongs in a `student` table.
+
+Renaming course C10 hits the **update anomaly**: "Databases" is duplicated across every enrolment for that course, so one logical change touches many rows - miss one and the data contradicts itself. The fix is three tables: `student`, `course`, and `enrolment(student_id, course_id, ...)` holding only foreign keys plus facts about the pairing.
+
+</details>
+
+### Challenge 3 - Choose the ON DELETE behaviour
+
+For each foreign key, pick `CASCADE`, `RESTRICT`, or `SET NULL`, and justify it:
+
+1. `order_items.order_id` references `orders.id`.
+2. `employees.manager_id` references `employees.id` (a manager can leave).
+3. `invoices.customer_id` references `customers.id`.
+
+<details>
+<summary>Show the answer</summary>
+
+1. **`CASCADE`** - a line item cannot exist without its order. Delete the order, its items go too.
+2. **`SET NULL`** - the employee outlives their manager. When a manager leaves, keep the reports but blank out `manager_id` (the column must be nullable).
+3. **`RESTRICT`** - deleting a customer who still has invoices should be a deliberate act. Refuse the delete and force someone to handle the invoices (archive, reassign) first. Quietly cascading would destroy financial records.
+
+The rule: **CASCADE** for true ownership, **SET NULL** when the child survives the parent, **RESTRICT** when a stray delete would be a disaster.
+
+</details>
+
+### Challenge 4 - Composite key or surrogate?
+
+You are designing a join table `tag_post(tag_id, post_id)` that links tags to posts. No other table references a row in it, and the same tag is attached to a post at most once. Should the primary key be the **composite** `(tag_id, post_id)` or a new **surrogate** `id`? What would change your mind?
+
+<details>
+<summary>Show the answer</summary>
+
+Use the **composite key** `PRIMARY KEY (tag_id, post_id)`. The pair *is* the row's identity, and the composite key doubles as a guard against attaching the same tag to a post twice - for free, no extra column.
+
+What would flip the decision to a surrogate `id`:
+
+- **Another table needs to point at this row** - a single FK column is simpler than a two-column FK.
+- **The same pair can legitimately repeat** (e.g. if you start recording each tagging event with a timestamp). Then the pair is no longer unique and you need a surrogate.
+
+For most pure join tables, the composite key is the cleaner choice.
+
+</details>
+
+## Runnable: a CHECK constraint and a generated column together
+
+The challenges above are design work. Here is one you can run - a `product` table that **enforces a non-negative price** with `CHECK` and **derives a tax-inclusive price** with a generated column. The insert with a negative price is rejected; the valid rows show the computed column.
+
+<SqlRunner
+  query={`CREATE TABLE product_priced (
+  id           INTEGER PRIMARY KEY,
+  name         TEXT NOT NULL,
+  price        REAL NOT NULL CHECK (price >= 0),
+  price_incl   REAL GENERATED ALWAYS AS (price * 1.23) STORED
+);
+
+INSERT INTO product_priced (id, name, price) VALUES
+  (1, 'Running shoe', 40.00),
+  (2, 'Trail socks',  12.50);
+
+-- this one is rejected by the CHECK, so it never lands:
+INSERT INTO product_priced (id, name, price) VALUES (3, 'Bad', -5);
+
+SELECT * FROM product_priced;`}
+  height={250}
+/>
+
+:::tip Read the error, then fix it
+The failed insert proves the guardrail works - the `CHECK` stops bad data at the door. Remove the negative-price row and re-run to see all rows land cleanly.
+:::
+
+## Comprehensive quiz
+
+<Quiz
+  title="Stage 2 cumulative review"
+  questions={[
+    {
+      prompt: "Which command and constraint pair correctly adds a rule that a column's value must exist in another table?",
+      options: [
+        {text: "CREATE/ALTER TABLE with a FOREIGN KEY (REFERENCES)", correct: true},
+        {text: "CREATE TABLE with a CHECK", correct: false},
+        {text: "ALTER TABLE with UNIQUE", correct: false},
+        {text: "CREATE VIEW with a JOIN", correct: false},
+      ],
+      explanation: "A FOREIGN KEY (REFERENCES) enforces that the value points to an existing row - referential integrity. CHECK tests a condition on the same row, UNIQUE forbids duplicates within the column, and a view is just a saved query - none of them link to another table's rows.",
+    },
+    {
+      prompt: "You delete a parent row and want its dependent child rows deleted automatically. Which ON DELETE action?",
+      options: [
+        {text: "CASCADE", correct: true},
+        {text: "RESTRICT", correct: false},
+        {text: "SET NULL", correct: false},
+        {text: "NO ACTION", correct: false},
+      ],
+      explanation: "CASCADE removes the children with the parent - correct for true ownership. RESTRICT/NO ACTION refuse the delete while children exist; SET NULL keeps the children but blanks their FK, orphaning them.",
+    },
+    {
+      prompt: "In a many-to-many relationship between students and courses, how is it modeled relationally?",
+      options: [
+        {text: "A join table holding a foreign key to each side", correct: true},
+        {text: "A foreign key on the students table", correct: false},
+        {text: "A foreign key on the courses table", correct: false},
+        {text: "A CHECK constraint spanning both tables", correct: false},
+      ],
+      explanation: "Many-to-many needs a join (junction) table with a FK to each side, which can also carry attributes of the pairing. A single FK on either table can only express one-to-many; a CHECK cannot span tables.",
+    },
+    {
+      prompt: "An order_items(order_id, product_id, quantity, product_name) table has a composite key (order_id, product_id). product_name depends only on product_id. Which normal form does this break?",
+      options: [
+        {text: "Second normal form (a partial dependency on part of the key)", correct: true},
+        {text: "First normal form (non-atomic value)", correct: false},
+        {text: "Third normal form (transitive dependency)", correct: false},
+        {text: "None - it is fully normalized", correct: false},
+      ],
+      explanation: "2NF forbids a non-key column depending on PART of a composite key; product_name depends on product_id alone, so it belongs in products. 1NF is about atomic cells (not the issue here); 3NF is about non-key columns depending on other non-key columns.",
+    },
+    {
+      prompt: "Storing 'S,M,L' as a comma-separated list in one column violates which rule?",
+      options: [
+        {text: "First normal form - values must be atomic, no embedded lists", correct: true},
+        {text: "Second normal form", correct: false},
+        {text: "Third normal form", correct: false},
+        {text: "A foreign-key constraint", correct: false},
+      ],
+      explanation: "1NF requires one value per cell with no repeating groups or embedded lists - use a separate row per value. 2NF and 3NF concern dependencies on keys, not the shape of a single cell.",
+    },
+    {
+      prompt: "When is deliberately storing orders.total (instead of summing line items on read) a defensible choice?",
+      options: [
+        {text: "As deliberate denormalization for faster reads, with a measured reason and a way to keep it in sync", correct: true},
+        {text: "Always - precomputing is simpler than joining", correct: false},
+        {text: "Never - a total must always be computed live", correct: false},
+        {text: "Only if the orders table has fewer than three columns", correct: false},
+      ],
+      explanation: "Denormalizing a precomputed total trades write-correctness for read speed; it is fine with a measured reason and a sync strategy (a generated column, trigger, or job). It is not a free default - the duplicated value can drift - and 'never' is too strict for read-heavy workloads.",
+    },
+    {
+      prompt: "You need a reusable, always-live query shape with no parameters and no control flow. Which fits best?",
+      options: [
+        {text: "A view", correct: true},
+        {text: "A PL/pgSQL procedural function", correct: false},
+        {text: "A stored procedure", correct: false},
+        {text: "A CHECK constraint", correct: false},
+      ],
+      explanation: "A view is a saved, parameter-free SELECT that stays live - exactly the job. A procedural function adds parameters and control flow you do not need here; a procedure is for multi-step transactional jobs; a CHECK validates data, it does not return a result set.",
+    },
+  ]}
+/>
+
+## Stage 2 cheatsheet
+
+<details>
+<summary>Open the Stage 2 cheatsheet</summary>
+
+**Key DDL syntax**
+
+```sql
+CREATE TABLE t (
+  id      INTEGER PRIMARY KEY,
+  email   TEXT NOT NULL UNIQUE,
+  parent  INTEGER REFERENCES other(id) ON DELETE CASCADE,
+  total   REAL GENERATED ALWAYS AS (qty * price) STORED,
+  PRIMARY KEY (a, b)          -- composite key form
+);
+
+ALTER TABLE t ADD COLUMN c TEXT DEFAULT 'x';   -- add / rename / drop column
+DROP TABLE IF EXISTS t;                         -- remove the table entirely
+
+CREATE VIEW v AS SELECT ...;        -- saved live query
+CREATE TABLE snap AS SELECT ...;    -- frozen point-in-time copy
+```
+
+**Constraint types**
+
+| Constraint | Guarantees |
+|---|---|
+| `NOT NULL` | always has a value |
+| `UNIQUE` | no two rows share the value |
+| `PRIMARY KEY` | unique + not null = the row's identity |
+| `FOREIGN KEY` (`REFERENCES`) | value must exist in another table |
+| `CHECK (...)` | value satisfies a condition |
+| `DEFAULT x` | use `x` when none supplied |
+
+**Foreign-key ON DELETE actions**
+
+- `CASCADE` - delete the children too (true ownership).
+- `RESTRICT` / `NO ACTION` - refuse the delete while children exist (safe default).
+- `SET NULL` - keep children, blank their FK (child outlives parent; FK must be nullable).
+
+**Normal-form rules**
+
+- **1NF** - atomic values; no lists in a cell, no repeating columns.
+- **2NF** - no partial dependency: every non-key column depends on the *whole* composite key.
+- **3NF** - no transitive dependency: no non-key column depends on another non-key column.
+- Rule of thumb: *depend on the key, the whole key, and nothing but the key.*
+- **Denormalize** only with a measured reason, and keep the duplicate in sync.
+
+**ER cardinality notation** (Mermaid crow's-foot)
+
+- `||--o{` - one-to-many (FK on the many side).
+- `}o--o{` - many-to-many (resolve with a join table).
+- `||--||` - one-to-one (FK + `UNIQUE`, or fold into one table).
+- `||` exactly one, `o{` zero-or-many, `o|` zero-or-one.
+
+**Keys at a glance**
+
+- **Natural** key = real data that is unique (can change - risky).
+- **Surrogate** key = generated stable id (safer default).
+- **Composite** key = several columns together (natural for pure join tables).
+
+</details>
+
+:::tip Next up
+Your schema is sound and well-packaged. **Stage 3 - Correct and Fast** makes it perform: indexes, query plans, and transactions.
+:::

@@ -1,0 +1,93 @@
+---
+sidebar_position: 3
+title: Consistency and concurrency
+sidebar_label: Consistency & CAP
+description: The CAP and PACELC trade-offs of distributed data, how MVCC and the write-ahead log keep databases correct, and how NewSQL delivers SQL and ACID at scale.
+---
+
+import Quiz from '@site/src/components/Quiz';
+
+# Consistency and concurrency
+
+Once data lives on many machines, you cannot have everything at once. This lesson covers the trade-offs distribution forces, the machinery that keeps a database correct, and how modern distributed SQL squares the circle.
+
+## The CAP theorem
+
+A distributed system juggles three properties:
+
+- **Consistency** - every read sees the latest write.
+- **Availability** - every request gets a (non-error) response.
+- **Partition tolerance** - the system keeps working when the network between nodes breaks.
+
+CAP says that **during a network partition you can keep only two** - and since partitions are a fact of life in distributed systems, **P is non-negotiable**. So the real choice, *when a partition happens*, is **C or A**:
+
+- **CP systems** refuse some requests to avoid returning stale data (favour consistency).
+- **AP systems** keep answering, accepting that some replicas are briefly out of date (favour availability) - they become **eventually consistent**, converging once the partition heals.
+
+## PACELC: the rest of the time
+
+CAP only describes behaviour *during* a partition. **PACELC** completes it: if there is a Partition, trade A vs C; **E**lse (normal operation), trade **L**atency vs **C**onsistency. Even with a healthy network, stronger consistency costs round trips. Many systems let you **tune** this per query - e.g. a quorum read for correctness, or a fast local read that may be slightly stale.
+
+## Staying correct under concurrency
+
+Underneath, the mechanisms from Stage 3 are what make this work:
+
+- **MVCC** keeps multiple versions of each row so readers see a consistent snapshot without blocking writers.
+- **Locks** serialize conflicting writes where needed.
+- The **write-ahead log (WAL)** records every change *before* applying it. The WAL is the unsung hero: it provides **durability** (replay it to recover after a crash), and it is also the **stream that feeds replicas** - replication is largely "ship the WAL to another node and replay it."
+
+## NewSQL: SQL and ACID at scale
+
+For years the trade-off was framed as "scale out, but give up SQL and ACID." **NewSQL** (distributed SQL) broke that. Systems like **CockroachDB**, **TiDB**, and **Google Spanner** shard data across nodes yet present one logical SQL database with full ACID transactions. They achieve it with **consensus protocols** (Raft or Paxos) to agree on each write across replicas, and - in Spanner's case - **synchronized clocks** (TrueTime) to order transactions globally. The practical result for 2026: you can have horizontal scale *and* SQL *and* strong consistency, where you once had to pick.
+
+## Quick quiz
+
+<Quiz
+  title="Consistency and concurrency"
+  questions={[
+    {
+      prompt: "During a network partition, what does CAP say you must choose between?",
+      options: [
+        {text: "Consistency or Availability (partition tolerance is required)", correct: true},
+        {text: "Consistency or Partition tolerance", correct: false},
+        {text: "Availability or Partition tolerance", correct: false},
+        {text: "You can have all three", correct: false},
+      ],
+      explanation: "Partitions happen, so P is a given. When one occurs you trade consistency against availability - CP refuses to serve stale data, AP keeps answering.",
+    },
+    {
+      prompt: "What does 'eventually consistent' mean?",
+      options: [
+        {text: "Replicas may be briefly out of date but converge to the same value once updates propagate", correct: true},
+        {text: "The data is never consistent", correct: false},
+        {text: "Every read always sees the latest write immediately", correct: false},
+        {text: "Consistency is checked once a day", correct: false},
+      ],
+      explanation: "AP systems answer during partitions and let replicas catch up afterward, so they agree 'eventually' rather than instantly.",
+    },
+    {
+      prompt: "What role does the write-ahead log (WAL) play?",
+      options: [
+        {text: "Durability and crash recovery - and it's the stream that feeds replicas", correct: true},
+        {text: "It caches query results", correct: false},
+        {text: "It stores user permissions", correct: false},
+        {text: "It replaces the need for indexes", correct: false},
+      ],
+      explanation: "Changes are logged before being applied, so a crash can replay the WAL; replication ships and replays that same log on other nodes.",
+    },
+    {
+      prompt: "How does NewSQL (CockroachDB, Spanner) keep SQL and ACID while scaling out?",
+      options: [
+        {text: "Consensus protocols (Raft/Paxos), and synchronized clocks in Spanner's case", correct: true},
+        {text: "By dropping transactions", correct: false},
+        {text: "By using a single server", correct: false},
+        {text: "By giving up consistency entirely", correct: false},
+      ],
+      explanation: "They agree on each write across replicas via consensus and order transactions globally (Spanner's TrueTime), delivering distributed ACID SQL.",
+    },
+  ]}
+/>
+
+:::tip Next up
+One topic left, and it is the newest: **[Vector databases and RAG](./vector-databases.mdx)** - the engine behind semantic search and AI assistants.
+:::

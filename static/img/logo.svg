@@ -1,0 +1,11 @@
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Databases, Explained logo">
+  <!-- cylinder body -->
+  <path d="M9 13 V35 A15 5.5 0 0 0 39 35 V13 Z" fill="#25c2a0"/>
+  <!-- top disc -->
+  <ellipse cx="24" cy="13" rx="15" ry="5.5" fill="#2bd4ae"/>
+  <!-- stacked-disc separators -->
+  <path d="M9 20.5 A15 5.5 0 0 0 39 20.5" stroke="#ffffff" stroke-width="1.6" fill="none" opacity="0.9" stroke-linecap="round"/>
+  <path d="M9 27.5 A15 5.5 0 0 0 39 27.5" stroke="#ffffff" stroke-width="1.6" fill="none" opacity="0.9" stroke-linecap="round"/>
+  <!-- insight spark ("explained") -->
+  <path d="M39 4 L40.7 8.3 L45 10 L40.7 11.7 L39 16 L37.3 11.7 L33 10 L37.3 8.3 Z" fill="#2bd4ae"/>
+</svg>

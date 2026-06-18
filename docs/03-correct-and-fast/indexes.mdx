@@ -1,0 +1,296 @@
+---
+sidebar_position: 2
+title: Indexes and query plans
+sidebar_label: Indexes & plans
+description: Read a query plan (SCAN vs SEARCH) and judge selectivity first, then design indexes - composite, covering, partial - understand the read-speed-versus-write-cost trade-off, and the execution mental model that prevents N+1 and SELECT * bugs.
+---
+
+import SqlRunner from '@site/src/components/SqlRunner';
+import Quiz from '@site/src/components/Quiz';
+
+# Indexes and query plans
+
+A correct schema can still be painfully slow. The single biggest lever on read speed is the **index**. Meet it now, with the trade-off stated up front: an index makes reads fast but **costs you on every write** - so you index deliberately, not everywhere.
+
+## What an index is
+
+Without an index, finding rows that match `WHERE cat = 7` means a **full table scan** - the database reads every row to check. Fine for hundreds of rows, ruinous for millions. An index is a separate, **sorted** structure (a B-tree) mapping values to the rows that hold them - exactly like the index at the back of a book. Instead of reading every page, the database jumps straight to the matches.
+
+Before deciding *which* index to add, learn to read what the database is already doing. The plan, not your intuition, tells you whether an index will help.
+
+## Reading a query plan: SCAN vs SEARCH
+
+`EXPLAIN QUERY PLAN` (PostgreSQL: `EXPLAIN`) shows *how* the database will run a query - whether it scans or uses an index - without running it for real. Two words carry most of the meaning:
+
+- **`SCAN`** - the database reads **every row** in the table and checks each. The warning sign on a filtered query against a big table.
+- **`SEARCH ... USING INDEX`** - the database used a sorted index to **jump straight to matching rows**, reading only what it needs.
+
+Run this against a 5,000-row table with **no** index. The plan says **`SCAN`**:
+
+<SqlRunner
+  query={`CREATE TABLE big (id INTEGER PRIMARY KEY, cat INTEGER);
+WITH RECURSIVE c(n) AS (
+  SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 5000
+)
+INSERT INTO big(cat) SELECT n % 50 FROM c;
+
+EXPLAIN QUERY PLAN
+SELECT * FROM big WHERE cat = 7;`}
+  height={200}
+/>
+
+Now the same query, but with an index on `cat`. The plan flips to **`SEARCH ... USING INDEX`** - the database no longer reads all 5,000 rows:
+
+<SqlRunner
+  query={`CREATE TABLE big (id INTEGER PRIMARY KEY, cat INTEGER);
+WITH RECURSIVE c(n) AS (
+  SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 5000
+)
+INSERT INTO big(cat) SELECT n % 50 FROM c;
+
+CREATE INDEX idx_big_cat ON big(cat);
+
+EXPLAIN QUERY PLAN
+SELECT * FROM big WHERE cat = 7;`}
+  height={230}
+/>
+
+Reading the `detail` column is the whole skill. When a query is slow, the plan tells you why before you change anything.
+
+## Selectivity: why some indexes barely help
+
+An index is only worth it if it eliminates most of the rows. **Selectivity** is the fraction of rows a value matches; **cardinality** is how many *distinct* values a column holds. High cardinality (many distinct values, like an email) means each lookup returns few rows - a great index. Low cardinality (few distinct values, like a boolean `is_active`) means each value matches half the table - the index saves almost nothing, and the planner may ignore it and scan instead.
+
+Compare a selective lookup with an unselective one on the same table. The first matches ~100 of 5,000 rows; the second matches ~2,500 - and the planner often picks a `SCAN` anyway because the index would not save enough:
+
+<SqlRunner
+  query={`CREATE TABLE wide (id INTEGER PRIMARY KEY, cat INTEGER, flag INTEGER);
+WITH RECURSIVE c(n) AS (
+  SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 5000
+)
+INSERT INTO wide(cat, flag) SELECT n % 50, n % 2 FROM c;
+
+CREATE INDEX idx_wide_cat ON wide(cat);    -- high cardinality: 50 distinct values
+CREATE INDEX idx_wide_flag ON wide(flag);  -- low cardinality: just 2 values
+
+-- selective: ~100 rows -> SEARCH USING INDEX idx_wide_cat
+EXPLAIN QUERY PLAN SELECT * FROM wide WHERE cat = 7;
+-- unselective: ~2,500 rows -> the planner ignores idx_wide_flag and SCANs
+EXPLAIN QUERY PLAN SELECT * FROM wide WHERE flag = 1;`}
+  height={280}
+/>
+
+The two plans appear stacked: `cat = 7` produces `SEARCH ... USING INDEX idx_wide_cat`, while `flag = 1` falls back to `SCAN`. The `flag` index exists, but matching half the table through it would cost more than a straight scan, so the planner declines to use it.
+
+The lesson: a column's *cardinality* decides whether an index pays off. Index the selective columns, not the low-cardinality flags.
+
+## The trade-off
+
+Indexes are not free. Every `INSERT`, `UPDATE`, and `DELETE` must also update each index on that table, and each index takes disk space. So the rule is **index the columns you actually search, join, and sort on** - and only when they are selective enough to matter:
+
+- columns in `WHERE` filters that are **selective** (high cardinality, narrow the rows a lot);
+- **foreign keys** and other join columns;
+- columns you frequently `ORDER BY`.
+
+Indexing a column nobody filters on - or a low-cardinality flag - just slows writes for no gain. And on a tiny table a scan is already fast, so the planner may ignore an index entirely (as it does on our 3-row `orders`).
+
+## Composite indexes
+
+An index can cover several columns: `CREATE INDEX ix ON orders(customer_id, created_at)`. Order matters because of the **left-prefix rule** - this index helps queries filtering on `customer_id`, or on `customer_id` *and* `created_at`, but **not** `created_at` alone. Put the column you always filter on first.
+
+### Your turn: a query the composite index serves
+
+The seed `orders` table is loaded below with an index already on `(customer_id, created_at)`. Write a query that returns **`id` and `total`** for **customer 1**, **oldest first**. This filters on the index's leading column and sorts on its second - exactly what a composite index is for.
+
+<SqlRunner
+  query={`-- index on (customer_id, created_at) already exists below.
+-- Return id and total for customer 1, oldest first.
+SELECT
+FROM orders
+;`}
+  schema={`CREATE TABLE orders (
+  id          INTEGER PRIMARY KEY,
+  customer_id INTEGER,
+  created_at  TEXT,
+  total       REAL
+);
+INSERT INTO orders VALUES
+  (101, 1, '2026-01-05', 40.00),
+  (102, 1, '2026-02-11', 25.00),
+  (103, 2, '2026-02-20', 90.00),
+  (104, 4, '2026-03-02', 25.00),
+  (105, 6, '2026-03-20', 90.00);
+CREATE INDEX idx_orders_cust_date ON orders(customer_id, created_at);`}
+  solution={`SELECT id, total FROM orders WHERE customer_id = 1 ORDER BY created_at;`}
+  ordered={true}
+  height={150}
+/>
+
+<details>
+<summary>Answer</summary>
+
+```sql
+SELECT id, total
+FROM orders
+WHERE customer_id = 1
+ORDER BY created_at;
+```
+
+`customer_id = 1` uses the index's **leading** column, and `ORDER BY created_at` matches its **second** column - so the database reads the rows already in the order you asked for, no extra sort.
+
+</details>
+
+## Covering indexes: answer from the index alone
+
+Normally an index gets you to the matching rows, then the database fetches each row from the table for the columns you `SELECT`. A **covering index** includes every column the query needs, so the database answers from the index itself and **never touches the table** - SQLite reports this in the plan as `USING COVERING INDEX`.
+
+If you only need `cat` and `id`, an index on `(cat)` already covers it (SQLite indexes carry the rowid). Watch the plan say `COVERING`:
+
+<SqlRunner
+  query={`CREATE TABLE big (id INTEGER PRIMARY KEY, cat INTEGER, note TEXT);
+WITH RECURSIVE c(n) AS (
+  SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 5000
+)
+INSERT INTO big(cat, note) SELECT n % 50, 'row ' || n FROM c;
+
+CREATE INDEX idx_big_cat ON big(cat);
+
+-- selects only id + cat, both available in the index -> COVERING
+EXPLAIN QUERY PLAN
+SELECT id FROM big WHERE cat = 7;`}
+  height={250}
+/>
+
+This is one more reason to avoid `SELECT *`: pulling a column the index lacks (like `note`) forces the extra table lookup and defeats the covering optimization.
+
+## Partial indexes: index only the rows you query
+
+A **partial index** covers only the rows matching a `WHERE` clause in its definition. When you almost always query a small subset - open tickets, undeleted rows - a partial index is smaller, faster to maintain, and ignores the rows you never filter on. SQLite supports it directly:
+
+<SqlRunner
+  query={`CREATE TABLE ticket (id INTEGER PRIMARY KEY, status TEXT, owner INTEGER);
+WITH RECURSIVE c(n) AS (
+  SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 5000
+)
+-- only ~1 in 50 tickets is still open
+INSERT INTO ticket(status, owner)
+  SELECT CASE WHEN n % 50 = 0 THEN 'open' ELSE 'closed' END, n % 10 FROM c;
+
+-- index only the open tickets, the ones we actually query
+CREATE INDEX idx_open_tickets ON ticket(owner) WHERE status = 'open';
+
+EXPLAIN QUERY PLAN
+SELECT * FROM ticket WHERE status = 'open' AND owner = 3;`}
+  height={270}
+/>
+
+The planner uses the partial index only when the query's `WHERE` implies the index's condition - here, `status = 'open'`.
+
+## Beyond SQLite: EXPLAIN ANALYZE and index types
+
+SQLite's `EXPLAIN QUERY PLAN` shows the planner's *intended* strategy. PostgreSQL's **`EXPLAIN ANALYZE`** goes further - it **actually runs** the query and reports estimated vs **actual** rows and timing per step. A large gap between estimated and actual rows means stale statistics, and a misled planner picking the wrong plan:
+
+```sql
+-- PostgreSQL: runs the query and shows real row counts and timing
+EXPLAIN ANALYZE
+SELECT * FROM big WHERE cat = 7;
+
+-- look for:  rows=100  (estimate)  vs  actual rows=98  (reality)
+-- a big mismatch -> run ANALYZE to refresh statistics
+```
+
+PostgreSQL also offers more than one **index type**. The default is a **B-tree**, right for equality and range queries on ordered data. But specialized types exist: **GIN** for full-text search and JSON/array containment, **GiST** for geometric and nearest-neighbour queries, **BRIN** for huge naturally-ordered tables, and **hash** for equality only. You reach for these when a B-tree cannot express the query; the default covers the large majority.
+
+:::note Dialect note
+`EXPLAIN ANALYZE`, GIN/GiST/BRIN indexes, and hash indexes are **PostgreSQL** features and do not run in this site's SQLite sandbox. SQLite offers B-tree indexes and the `EXPLAIN QUERY PLAN` shown above; the concepts - read the plan, judge selectivity, cover the query - transfer directly.
+:::
+
+## The execution mental model
+
+Most slow data-backed apps are not slow because of the database engine - they are slow because of *how the app talks to it*. Three habits to internalise:
+
+- **The N+1 problem.** Fetching a list, then firing one more query per item (1 query for orders, then N for each order's customer) turns one round trip into N+1. Fix it with a single `JOIN` or `WHERE id IN (...)` - think in sets, not loops.
+- **`SELECT *`.** Pulling every column hauls back data you do not use and can stop the database from answering entirely from an index. Name the columns you need.
+- **No guaranteed order without `ORDER BY`.** Rows come back in whatever order is convenient; never rely on insertion order. If order matters, say so.
+
+## Quick quiz
+
+<Quiz
+  title="Indexes and query plans"
+  questions={[
+    {
+      prompt: "What is the main trade-off of adding an index?",
+      options: [
+        {text: "Faster reads, but slower writes and more disk used", correct: true},
+        {text: "Faster writes, but slower reads", correct: false},
+        {text: "It has no downside - always index every column", correct: false},
+        {text: "It changes the query results", correct: false},
+      ],
+      explanation: "An index speeds matching reads but must be maintained on every write and costs space. Index the columns you search/join/sort on, not all of them.",
+    },
+    {
+      prompt: "In a query plan, what does SCAN (vs SEARCH USING INDEX) tell you?",
+      options: [
+        {text: "The database reads every row instead of jumping to matches via an index", correct: true},
+        {text: "The query has a syntax error", correct: false},
+        {text: "The table is locked", correct: false},
+        {text: "An index is being created", correct: false},
+      ],
+      explanation: "SCAN = full table read; SEARCH ... USING INDEX = the index let it jump to matching rows. On large tables, SCAN on a filtered query is the warning sign.",
+    },
+    {
+      prompt: "Why does an index on a boolean is_active column barely help, while one on email helps a lot?",
+      options: [
+        {text: "is_active has low cardinality - each value matches ~half the rows, so the index eliminates little", correct: true},
+        {text: "Booleans cannot be indexed at all", correct: false},
+        {text: "email is shorter to store", correct: false},
+        {text: "Indexes only work on text columns", correct: false},
+      ],
+      explanation: "Selectivity drives the payoff. A low-cardinality column matches a large fraction of rows, so the planner may scan anyway; a high-cardinality column narrows to few rows.",
+    },
+    {
+      prompt: "A plan shows USING COVERING INDEX. What does that mean?",
+      options: [
+        {text: "The index held every column the query needed, so the table was never read", correct: true},
+        {text: "The index covers the whole table on disk", correct: false},
+        {text: "Two indexes were combined", correct: false},
+        {text: "The query was rejected", correct: false},
+      ],
+      explanation: "A covering index contains all selected/filtered columns, so the database answers from the index alone - one reason to avoid SELECT *.",
+    },
+    {
+      prompt: "You almost always query WHERE status = 'open' on a table that is 98% closed. What is the efficient index?",
+      options: [
+        {text: "A partial index: CREATE INDEX ... WHERE status = 'open'", correct: true},
+        {text: "A full index on every column", correct: false},
+        {text: "No index - always scan", correct: false},
+        {text: "An index on the closed rows", correct: false},
+      ],
+      explanation: "A partial index covers only the rows you actually query, so it stays small and cheap to maintain while still serving the matching filter.",
+    },
+    {
+      prompt: "An index on (customer_id, created_at) speeds up which filter?",
+      options: [
+        {text: "WHERE customer_id = 1 (and optionally AND created_at = ...)", correct: true},
+        {text: "WHERE created_at = '2026-01-01' alone", correct: false},
+        {text: "Any column in the table", correct: false},
+        {text: "Only queries with no WHERE clause", correct: false},
+      ],
+      explanation: "The left-prefix rule: a composite index helps filters that start with its first column. Filtering on created_at alone skips the leading column, so the index does not apply.",
+    },
+    {
+      prompt: "Your page loads a list, then runs one extra query per item to fetch related data. What is this, and the fix?",
+      options: [
+        {text: "The N+1 problem - replace the per-item queries with one JOIN or IN (...)", correct: true},
+        {text: "A deadlock - add more indexes", correct: false},
+        {text: "A transaction anomaly - raise the isolation level", correct: false},
+        {text: "Normal and unavoidable", correct: false},
+      ],
+      explanation: "N+1 turns one request into N+1 round trips. Fetch the related rows in a single set-based query (JOIN or WHERE ... IN).",
+    },
+  ]}
+/>
+
+:::tip Next up
+Fast is half of it. **[Transactions and isolation](./transactions.mdx)** keeps an app *correct* when many users hit the data at once.
+:::

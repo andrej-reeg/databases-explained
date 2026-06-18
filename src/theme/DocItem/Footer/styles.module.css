@@ -1,0 +1,63 @@
+.status {
+  min-height: 1.75rem;
+  margin: 1.5rem 0 0.5rem;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  background: var(--ifm-color-success-contrast-background);
+  color: var(--ifm-color-success-contrast-foreground);
+  font-size: 0.85rem;
+  font-weight: 600;
+  animation: chipIn 0.25s ease;
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  background: var(--ifm-color-success);
+  color: #fff;
+  font-size: 0.75rem;
+}
+
+.undo {
+  border: none;
+  background: none;
+  padding: 0;
+  margin-left: 0.25rem;
+  font: inherit;
+  font-weight: 500;
+  color: inherit;
+  opacity: 0.75;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.undo:hover {
+  opacity: 1;
+}
+
+@keyframes chipIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chip {
+    animation: none;
+  }
+}

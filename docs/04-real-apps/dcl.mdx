@@ -1,0 +1,125 @@
+---
+sidebar_position: 2
+title: Access control - DCL
+sidebar_label: DCL
+description: Control who can do what with DCL - roles, GRANT and REVOKE, role membership, least privilege, and the modern PostgreSQL security defaults.
+---
+
+import Quiz from '@site/src/components/Quiz';
+
+# Access control: DCL
+
+**DCL** (Data Control Language) is the SQL sublanguage for **security** - deciding who may read, change, or manage each part of the database. It has two verbs, **`GRANT`** and **`REVOKE`**, applied to **roles**. This is the *authorization* layer: separate from *authentication* (proving who you are) and from encryption, auditing, and backups, which round out a database's security.
+
+:::note PostgreSQL, not the sandbox
+Roles and privileges are a server feature, and SQLite has none of it - a SQLite database is a file, so access is just filesystem permissions. These examples are **PostgreSQL** and do not run in this site's sandbox.
+:::
+
+## Roles: users and groups
+
+In PostgreSQL there are no separate "users" and "groups" - everything is a **role**. The only difference is one attribute:
+
+- A **login role** can connect to the database (it has the `LOGIN` attribute) - this is what you think of as a user.
+- A **group role** has no `LOGIN`; it exists to bundle privileges and hand them to other roles.
+
+```sql
+CREATE ROLE marketing;                      -- group role (no login)
+CREATE ROLE app_user LOGIN PASSWORD 'secret'; -- login role (a user)
+```
+
+`CREATE USER` is just shorthand for `CREATE ROLE ... LOGIN`.
+
+## Privileges: GRANT and REVOKE
+
+A **privilege** is the right to perform one action on one object - `SELECT`, `INSERT`, `UPDATE`, `DELETE` on a table, `EXECUTE` on a function, and so on. `GRANT` gives a privilege; `REVOKE` takes it back.
+
+```sql
+GRANT SELECT ON customers TO marketing;   -- marketing can read customers
+REVOKE DELETE ON orders FROM marketing;   -- but cannot delete orders
+```
+
+Privileges apply per object, or at the schema and database level. The governing principle is **default-deny, least privilege**: a new role starts with almost nothing, and you grant only what its job requires. When designing access, ask two questions every time - *to whom*, and *which privilege*. A `customer` role should never get `INSERT` on internal tables; a read-only reporting role gets `SELECT` and nothing else.
+
+## Role membership: inheriting privileges
+
+Granting one role *to* another makes the second a **member** of the first and lets it inherit those privileges. This is how you avoid granting the same rights one by one:
+
+```sql
+GRANT marketing TO app_user;     -- app_user now inherits marketing's rights
+REVOKE marketing FROM app_user;  -- and loses them again
+```
+
+Set up the privileges once on a group role, then add or remove members as people and services come and go.
+
+## Modern PostgreSQL security (2026)
+
+The defaults and tools have tightened in recent versions - know these:
+
+- **Locked-down `public` schema.** Since PostgreSQL 15, ordinary roles can no longer create objects in the `public` schema by default. Earlier versions let everyone write there - a long-standing footgun now closed.
+- **Predefined roles.** PostgreSQL ships built-in roles like `pg_read_all_data` and `pg_write_all_data` (since v14) so you can grant broad read or write access without hand-listing every table.
+- **Row-Level Security (RLS).** For per-row control, `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` plus `CREATE POLICY` restricts *which rows* a role sees - e.g. each tenant sees only their own data, enforced by the database itself.
+- **`WITH GRANT OPTION`** lets a role pass a privilege on to others; **`ALTER DEFAULT PRIVILEGES`** sets what newly created objects grant automatically.
+
+Together these let you enforce access in the database, not just in application code - a second line of defence if the app is ever bypassed.
+
+## Quick quiz
+
+<Quiz
+  title="Access control with DCL"
+  questions={[
+    {
+      prompt: "What is the purpose of DCL statements?",
+      options: [
+        {text: "Manage database security - access and permissions", correct: true},
+        {text: "Retrieve data from a database", correct: false},
+        {text: "Modify data in a database", correct: false},
+        {text: "Create new tables", correct: false},
+      ],
+      explanation: "DCL (GRANT/REVOKE) controls who can do what. Retrieving and modifying data is DML; creating objects is DDL.",
+    },
+    {
+      prompt: "How do you create a role in PostgreSQL?",
+      options: [
+        {text: "CREATE ROLE", correct: true},
+        {text: "CREATE TABLE", correct: false},
+        {text: "CREATE DATABASE", correct: false},
+        {text: "GRANT ROLE", correct: false},
+      ],
+      explanation: "CREATE ROLE makes a role; CREATE USER is the same with LOGIN added. CREATE TABLE/DATABASE make other objects.",
+    },
+    {
+      prompt: "What does the DELETE privilege grant?",
+      options: [
+        {text: "The ability to delete rows from a table", correct: true},
+        {text: "The ability to drop the table itself", correct: false},
+        {text: "The ability to modify the table's columns", correct: false},
+        {text: "The ability to revoke other roles", correct: false},
+      ],
+      explanation: "The DELETE privilege allows removing rows (DML). Dropping the table is a DDL action governed by ownership, not the DELETE privilege.",
+    },
+    {
+      prompt: "Which best describes good privilege design?",
+      options: [
+        {text: "Default-deny: grant only the privileges a role actually needs", correct: true},
+        {text: "Grant every user all privileges, then remove problems as they appear", correct: false},
+        {text: "Privileges are bundles of roles", correct: false},
+        {text: "Every user can grant privileges to anyone", correct: false},
+      ],
+      explanation: "Least privilege starts from deny-all and grants only what's needed. Roles bundle privileges (not the other way around), and only owners/admins grant rights.",
+    },
+    {
+      prompt: "A reporting service should read every table but change nothing. Best approach in modern PostgreSQL?",
+      options: [
+        {text: "Grant the predefined pg_read_all_data role to it", correct: true},
+        {text: "Grant it superuser", correct: false},
+        {text: "Give it INSERT, UPDATE, DELETE on all tables", correct: false},
+        {text: "Add it to the public schema owners", correct: false},
+      ],
+      explanation: "pg_read_all_data (v14+) grants broad read access without write. Superuser and write privileges violate least privilege.",
+    },
+  ]}
+/>
+
+:::tip Next up
+DCL secures the database from the inside. **[SQL injection and safe queries](./sql-injection.mdx)** covers the most common way that defence gets bypassed from the application side - and the one-line habit that stops it.
+:::

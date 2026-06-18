@@ -1,0 +1,274 @@
+---
+sidebar_position: 2
+title: Creating and changing tables - DDL
+sidebar_label: DDL
+description: Define and reshape database structure with DDL - CREATE, ALTER, DROP - plus constraints, generated columns, foreign-key cascade actions, snapshots, views, and how DROP, TRUNCATE, and DELETE differ.
+---
+
+import SqlRunner from '@site/src/components/SqlRunner';
+import Quiz from '@site/src/components/Quiz';
+
+# Creating and changing tables: DDL
+
+Stage 1 manipulated data with DML. **DDL** (Data Definition Language) is the other half: it defines and reshapes the *structure* itself - tables, columns, constraints. Three commands do the work: **`CREATE`** makes objects, **`ALTER`** changes them, **`DROP`** removes them. DDL manipulates the schema; it does not edit row data the way `UPDATE` does.
+
+The boxes below run real SQLite in your browser - **Reset data** restores the original store.
+
+## CREATE TABLE
+
+`CREATE TABLE` defines a table's columns, their types, and the **constraints** that keep data valid. Add `IF NOT EXISTS` to avoid an error when it already exists.
+
+<SqlRunner
+  query={`CREATE TABLE IF NOT EXISTS account (
+  id       INTEGER PRIMARY KEY,
+  email    TEXT NOT NULL UNIQUE,
+  balance  REAL DEFAULT 0 CHECK (balance >= 0),
+  owner_id INTEGER REFERENCES customers(id)
+);
+
+INSERT INTO account (id, email) VALUES (1, 'ana@shop.test');
+SELECT * FROM account;`}
+  height={200}
+/>
+
+### Constraints - the guardrails
+
+Constraints are rules the database enforces on every write, so bad data cannot get in. They are the cheapest, most reliable data quality you will ever add.
+
+| Constraint | Guarantees |
+|---|---|
+| `NOT NULL` | the column must always have a value |
+| `UNIQUE` | no two rows share the value |
+| `PRIMARY KEY` | unique **and** not null - the row's identity |
+| `FOREIGN KEY` (`REFERENCES`) | the value must exist in another table |
+| `CHECK (...)` | the value must satisfy a condition |
+| `DEFAULT x` | use `x` when none is supplied |
+
+The `CHECK` above forbids a negative balance. Watch it reject a bad insert:
+
+<SqlRunner
+  query={`CREATE TABLE IF NOT EXISTS account (
+  id INTEGER PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  balance REAL DEFAULT 0 CHECK (balance >= 0)
+);
+INSERT INTO account (id, email, balance) VALUES (9, 'x@y.z', -10);`}
+  height={170}
+/>
+
+:::tip 2026: prefer identity columns for auto-numbering
+For an auto-incrementing key, modern PostgreSQL favours `id INTEGER GENERATED ALWAYS AS IDENTITY` over the older `SERIAL` type - it is the SQL-standard syntax and avoids `SERIAL`'s ownership quirks. (SQLite just uses `INTEGER PRIMARY KEY`, which auto-assigns.)
+:::
+
+## Generated columns - computed, not stored by hand
+
+A **generated column** derives its value from other columns with a formula the database evaluates for you. You never write to it; you cannot get it out of sync. Declare it with `GENERATED ALWAYS AS (expression)`.
+
+Two flavours: **`STORED`** computes the value on write and saves it on disk; **`VIRTUAL`** computes it on read and saves nothing. Use `STORED` when reads are frequent or you want to index the column; `VIRTUAL` when writes dominate and space matters.
+
+<SqlRunner
+  query={`CREATE TABLE line_item (
+  id        INTEGER PRIMARY KEY,
+  unit_price REAL,
+  quantity   INTEGER,
+  subtotal   REAL GENERATED ALWAYS AS (unit_price * quantity) STORED
+);
+
+INSERT INTO line_item (id, unit_price, quantity) VALUES (1, 12.50, 3);
+SELECT * FROM line_item;`}
+  height={200}
+/>
+
+`subtotal` is always `unit_price * quantity` - the database recomputes it whenever either input changes. This is the safe way to keep a derived value: it cannot drift the way a hand-maintained copy can (the denormalization trap you will meet in [normalization](./normalization.mdx)).
+
+:::note Dialects agree here
+Generated columns are SQL-standard and supported by SQLite, PostgreSQL, MySQL, and others. PostgreSQL currently implements only `STORED`; SQLite and MySQL support both `STORED` and `VIRTUAL`.
+:::
+
+## Foreign keys: what happens on delete
+
+A foreign key blocks you from orphaning rows - but *blocking* is only one option. The **referential action** decides what happens to the children when a referenced parent row is deleted (or its key updated). You set it with `ON DELETE` (and `ON UPDATE`):
+
+| Action | On deleting a referenced parent row |
+|---|---|
+| `RESTRICT` / `NO ACTION` | refuse the delete while children exist (the safe default) |
+| `CASCADE` | delete the children too, automatically |
+| `SET NULL` | keep the children, blank out their FK column |
+| `SET DEFAULT` | set the children's FK to its column default |
+
+Choosing well is a modeling decision:
+
+- **`CASCADE`** when the child cannot exist without the parent - delete an order, its `order_items` should go with it.
+- **`SET NULL`** when the child outlives the parent - delete an author, keep their posts but show no author. (The FK column must be nullable.)
+- **`RESTRICT`** when deletion should be a deliberate act - refuse to delete a customer who still has orders, forcing you to handle them first.
+
+Watch `ON DELETE CASCADE` clean up children automatically:
+
+<SqlRunner
+  query={`PRAGMA foreign_keys = ON;   -- SQLite enforces FKs only when asked
+
+CREATE TABLE invoice (id INTEGER PRIMARY KEY);
+CREATE TABLE invoice_line (
+  id         INTEGER PRIMARY KEY,
+  invoice_id INTEGER REFERENCES invoice(id) ON DELETE CASCADE,
+  amount     REAL
+);
+
+INSERT INTO invoice VALUES (1);
+INSERT INTO invoice_line VALUES (1, 1, 40), (2, 1, 12);
+
+DELETE FROM invoice WHERE id = 1;   -- the two lines vanish with it
+SELECT * FROM invoice_line;`}
+  height={230}
+/>
+
+:::warning CASCADE deletes more than you typed
+A single `DELETE` can sweep away whole trees of rows through chained cascades, with no second prompt. It is the right tool for true parent-child ownership, but reach for `RESTRICT` whenever a stray delete would be a disaster.
+:::
+
+## Tables from queries: snapshot vs view
+
+You can also build a table from a query. There are two flavours, and the difference matters.
+
+- **Snapshot** - `CREATE TABLE ... AS SELECT ...` copies the rows *as they are now* into a new real table. A point-in-time copy, frozen. Good for "state before a migration" or historical analytics.
+- **View** - `CREATE VIEW ... AS SELECT ...` stores the *query*, not the rows. It behaves like a virtual table and is always live - query it and you see current data. Good for reusing a query shape without duplicating data.
+
+<SqlRunner
+  query={`-- snapshot: frozen copy
+CREATE TABLE big_orders AS
+  SELECT * FROM orders WHERE total >= 40;
+
+-- view: live virtual table
+CREATE VIEW v_big_orders AS
+  SELECT * FROM orders WHERE total >= 40;
+
+SELECT * FROM big_orders;`}
+  height={190}
+/>
+
+A snapshot is a real table (frozen data); a view is a saved query (live). Together with [CTEs](../01-speaking-sql/composing-queries.mdx), they are your toolkit for naming and reusing result sets - a CTE lasts one statement, a view lasts until you drop it, a snapshot persists its data.
+
+## ALTER TABLE
+
+`ALTER TABLE` reshapes an existing table - most commonly adding a column:
+
+<SqlRunner
+  query={`ALTER TABLE customers ADD COLUMN signup_date TEXT DEFAULT '2026-01-01';
+SELECT * FROM customers;`}
+  height={130}
+/>
+
+You can also `RENAME COLUMN`, `RENAME TO` (rename the table), and `DROP COLUMN`.
+
+:::note Dialects differ on ALTER
+SQLite's `ALTER` is deliberately limited: it cannot change a column's type or add a constraint to an existing table - you rebuild the table instead. PostgreSQL, SQL Server, and others support the fuller form, e.g. `ALTER TABLE t ALTER COLUMN c TYPE INTEGER` or `ALTER TABLE t ADD CONSTRAINT ...`. Try the SQLite-only forms above; the type-change form would error here.
+:::
+
+`ALTER` briefly locks the object while it runs, so on a busy production table, schedule structural changes for quiet periods.
+
+## DROP, TRUNCATE, DELETE - choosing the right eraser
+
+These three all remove things, at very different scopes:
+
+| | `DROP TABLE t` | `TRUNCATE TABLE t` | `DELETE FROM t WHERE ...` |
+|---|---|---|---|
+| Removes | the whole table + data | all rows, keeps the table | only matching rows |
+| Kind | DDL | DDL/DML | DML |
+| Speed | fast | fast, even on huge tables | slower, row by row |
+| Triggers | dropped with table | usually skipped | run per row |
+| Auto-key sequence | gone | reset | unchanged |
+
+`DELETE` is the only one that takes a `WHERE` and removes *some* rows. `TRUNCATE` empties a table fast but is all-or-nothing (and SQLite has none - use `DELETE FROM t`). `DROP` removes the table itself.
+
+<SqlRunner
+  query={`DROP TABLE IF EXISTS account;
+-- gone: this errors, proving the table no longer exists
+SELECT * FROM account;`}
+  height={130}
+/>
+
+:::warning DROP ... CASCADE is the dangerous one
+Plain `DROP TABLE` fails if other objects depend on the table. `DROP TABLE ... CASCADE` removes the table **and every dependent object** (views, foreign keys, more) in one irreversible sweep. Reach for it only when you are certain - in production, renaming and archiving beats dropping.
+:::
+
+## Quick quiz
+
+<Quiz
+  title="DDL: CREATE, ALTER, DROP"
+  questions={[
+    {
+      prompt: "What do DDL commands do?",
+      options: [
+        {text: "Define and change the schema (structure), not row data", correct: true},
+        {text: "Modify row data but not structure", correct: false},
+        {text: "Both edit rows and define structure", correct: false},
+        {text: "Only control transactions", correct: false},
+      ],
+      explanation: "DDL (CREATE/ALTER/DROP) defines structure. Editing row values is DML (INSERT/UPDATE/DELETE); controlling transactions is TCL.",
+    },
+    {
+      prompt: "Which constraint limits the values allowed in a column to those passing a condition?",
+      options: [
+        {text: "CHECK", correct: true},
+        {text: "FOREIGN KEY", correct: false},
+        {text: "NOT NULL", correct: false},
+        {text: "UNIQUE", correct: false},
+      ],
+      explanation: "CHECK enforces a boolean condition (e.g. balance >= 0). FOREIGN KEY links tables, NOT NULL forbids nulls, UNIQUE forbids duplicates.",
+    },
+    {
+      prompt: "Which is NOT a valid use of ALTER?",
+      options: [
+        {text: "Deleting specific rows from a table", correct: true},
+        {text: "Adding a new column", correct: false},
+        {text: "Renaming a table", correct: false},
+        {text: "Dropping a column", correct: false},
+      ],
+      explanation: "Deleting rows is DELETE (DML). ALTER changes structure - add/rename/drop columns, rename the table.",
+    },
+    {
+      prompt: "You want to remove all rows but keep the empty table and its structure. Which fits best?",
+      options: [
+        {text: "TRUNCATE (or DELETE FROM with no WHERE)", correct: true},
+        {text: "DROP TABLE", correct: false},
+        {text: "ALTER TABLE", correct: false},
+        {text: "DROP ... CASCADE", correct: false},
+      ],
+      explanation: "TRUNCATE empties a table while keeping its structure (in SQLite, DELETE FROM t). DROP removes the table itself.",
+    },
+    {
+      prompt: "Why use a STORED generated column for subtotal = unit_price * quantity instead of computing it in the app?",
+      options: [
+        {text: "The database keeps it consistent automatically - it cannot drift out of sync", correct: true},
+        {text: "It makes inserts faster", correct: false},
+        {text: "It lets the app skip the WHERE clause", correct: false},
+        {text: "Generated columns are the only way to store a number", correct: false},
+      ],
+      explanation: "A generated column is recomputed from its inputs by the database on every change, so a hand-maintained copy can never disagree with the source columns.",
+    },
+    {
+      prompt: "You delete an order; its order_items should disappear too. Which referential action fits?",
+      options: [
+        {text: "ON DELETE CASCADE", correct: true},
+        {text: "ON DELETE RESTRICT", correct: false},
+        {text: "ON DELETE SET NULL", correct: false},
+        {text: "ON DELETE NO ACTION", correct: false},
+      ],
+      explanation: "CASCADE removes the children with the parent - right when the child cannot exist without it. RESTRICT would block the delete; SET NULL would orphan the lines.",
+    },
+    {
+      prompt: "Why is DROP TABLE ... CASCADE more dangerous than DROP TABLE?",
+      options: [
+        {text: "It also removes every dependent object, irreversibly", correct: true},
+        {text: "It runs faster so mistakes happen sooner", correct: false},
+        {text: "It only deletes the data, not the table", correct: false},
+        {text: "It cannot be used inside a transaction", correct: false},
+      ],
+      explanation: "CASCADE drops the table plus all objects that depend on it (views, foreign keys, etc.) in one sweep - far more than the single table.",
+    },
+  ]}
+/>
+
+:::tip Next up
+Now the design half of the stage: *what* schema to build. **[Modeling with ER diagrams](./er-modeling.mdx)** turns requirements into entities, relationships, and keys.
+:::

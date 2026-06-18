@@ -1,0 +1,341 @@
+---
+sidebar_position: 10
+title: Stage 1 review
+sidebar_label: Stage 1 review
+description: A cumulative final assessment for Stage 1 - mixed live SQL challenges spanning SELECT, GROUP BY, joins, subqueries, CTEs, and window functions, plus a comprehensive quiz.
+---
+
+import SqlRunner from '@site/src/components/SqlRunner';
+import Quiz from '@site/src/components/Quiz';
+
+# Stage 1 review
+
+This page proves the whole stage stuck. Each challenge pulls from a different lesson, and the later ones combine several. Write each query in the live box and press **Run** - the box checks your result against the expected answer, so you get immediate feedback. Stuck? Open the worked answer.
+
+Everything runs against the same store schema you have used throughout. **Reset data** restores the rows.
+
+<SqlRunner query={`SELECT * FROM orders;`} />
+
+## Challenge 1 - SELECT and WHERE
+
+List the **names** of every customer in Ireland (`country = 'IE'`), alphabetically.
+
+<SqlRunner
+  query={`-- Write your query here, then press Run\n`}
+  solution={`SELECT name FROM customers WHERE country = 'IE' ORDER BY name;`}
+  ordered
+/>
+
+:::note Worked answer
+<details>
+<summary>Show answer</summary>
+
+```sql
+SELECT name
+FROM customers
+WHERE country = 'IE'
+ORDER BY name;
+```
+
+Three IE customers - Ana, Ben, Finn - sorted by name. Eve's country is `NULL`, so `country = 'IE'` is *unknown* and she is correctly excluded.
+
+</details>
+:::
+
+## Challenge 2 - GROUP BY and HAVING
+
+Find the `customer_id` and order count for every customer who has placed **more than one** order.
+
+<SqlRunner
+  query={`-- Write your query here, then press Run\n`}
+  solution={`SELECT customer_id, COUNT(*) AS orders FROM orders GROUP BY customer_id HAVING COUNT(*) > 1;`}
+/>
+
+:::note Worked answer
+<details>
+<summary>Show answer</summary>
+
+```sql
+SELECT customer_id, COUNT(*) AS orders
+FROM orders
+GROUP BY customer_id
+HAVING COUNT(*) > 1;
+```
+
+Only customer `1` (Ana) has two orders. The filter is on the aggregate, so it must go in `HAVING`, not `WHERE` - the count does not exist yet when `WHERE` runs.
+
+</details>
+:::
+
+## Challenge 3 - LEFT JOIN and COALESCE
+
+List **every** customer's `name` and their total spend, ordered by name. Customers with no orders must show `0`, not `NULL`.
+
+<SqlRunner
+  query={`-- Write your query here, then press Run\n`}
+  solution={`SELECT customers.name, COALESCE(SUM(orders.total), 0) AS spent FROM customers LEFT JOIN orders ON orders.customer_id = customers.id GROUP BY customers.id ORDER BY customers.name;`}
+  ordered
+/>
+
+:::note Worked answer
+<details>
+<summary>Show answer</summary>
+
+```sql
+SELECT customers.name, COALESCE(SUM(orders.total), 0) AS spent
+FROM customers
+LEFT JOIN orders ON orders.customer_id = customers.id
+GROUP BY customers.id
+ORDER BY customers.name;
+```
+
+A `LEFT JOIN` keeps Cleo and Eve, who have no orders; `SUM` over their (absent) rows is `NULL`, and `COALESCE(..., 0)` turns that into `0`. A plain `JOIN` would drop them.
+
+</details>
+:::
+
+## Challenge 4 - Subquery with NOT EXISTS
+
+List the `name` of every customer who has **never** placed an order, alphabetically.
+
+<SqlRunner
+  query={`-- Write your query here, then press Run\n`}
+  solution={`SELECT name FROM customers c WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id) ORDER BY name;`}
+  ordered
+/>
+
+:::note Worked answer
+<details>
+<summary>Show answer</summary>
+
+```sql
+SELECT name
+FROM customers c
+WHERE NOT EXISTS (
+  SELECT 1 FROM orders o WHERE o.customer_id = c.id
+)
+ORDER BY name;
+```
+
+Cleo and Eve have no matching order. `NOT EXISTS` is the safe choice over `NOT IN` here - if `customer_id` ever contained a `NULL`, `NOT IN` could silently return nothing.
+
+</details>
+:::
+
+## Challenge 5 - CTE
+
+Using a **common table expression**, report total spend **per country**, ordered by country. Build per-customer spend in the CTE, then group it by country.
+
+<SqlRunner
+  query={`-- Write your query here, then press Run\n`}
+  solution={`WITH spend AS (SELECT customer_id, SUM(total) AS total_spent FROM orders GROUP BY customer_id) SELECT customers.country, SUM(spend.total_spent) AS country_spend FROM spend JOIN customers ON customers.id = spend.customer_id GROUP BY customers.country ORDER BY customers.country;`}
+  ordered
+/>
+
+:::note Worked answer
+<details>
+<summary>Show answer</summary>
+
+```sql
+WITH spend AS (
+  SELECT customer_id, SUM(total) AS total_spent
+  FROM orders
+  GROUP BY customer_id
+)
+SELECT customers.country, SUM(spend.total_spent) AS country_spend
+FROM spend
+JOIN customers ON customers.id = spend.customer_id
+GROUP BY customers.country
+ORDER BY customers.country;
+```
+
+The CTE first sums each customer's orders; the main query joins to `customers` and re-groups by country. Only customers who have ordered appear (an inner `JOIN`), so IE totals 245 and LT totals 25.
+
+</details>
+:::
+
+## Challenge 6 - Window function
+
+Show each order's `id`, `created_at`, and `total`, plus a **running total** of `total` ordered by date - without collapsing the rows.
+
+<SqlRunner
+  query={`-- Write your query here, then press Run\n`}
+  solution={`SELECT id, created_at, total, SUM(total) OVER (ORDER BY created_at) AS running_total FROM orders;`}
+  ordered
+/>
+
+:::note Worked answer
+<details>
+<summary>Show answer</summary>
+
+```sql
+SELECT id, created_at, total,
+       SUM(total) OVER (ORDER BY created_at) AS running_total
+FROM orders;
+```
+
+`SUM(total) OVER (ORDER BY created_at)` accumulates down the dates - 40, 65, 155, 180, 270 - while every order keeps its own row. `GROUP BY` would have collapsed them into a single sum.
+
+</details>
+:::
+
+## Comprehensive quiz
+
+<Quiz
+  title="Stage 1 cumulative review"
+  questions={[
+    {
+      prompt: "You write SELECT, FROM, WHERE, GROUP BY, HAVING, ORDER BY. In what order does the database logically evaluate them?",
+      options: [
+        {text: "FROM, WHERE, GROUP BY, HAVING, SELECT, ORDER BY", correct: true},
+        {text: "SELECT, FROM, WHERE, GROUP BY, HAVING, ORDER BY", correct: false},
+        {text: "FROM, SELECT, WHERE, GROUP BY, HAVING, ORDER BY", correct: false},
+        {text: "WHERE, FROM, GROUP BY, SELECT, HAVING, ORDER BY", correct: false},
+      ],
+      explanation: "The database reads FROM first, filters rows with WHERE, forms groups, filters them with HAVING, then computes SELECT and finally ORDER BY. That is why a SELECT alias is unavailable in WHERE, and why an aggregate filter must live in HAVING - not because SELECT is written first.",
+    },
+    {
+      prompt: "A 'list every customer and their orders' report is missing the customers who have no orders. The most likely cause?",
+      options: [
+        {text: "An INNER JOIN was used where a LEFT JOIN was needed", correct: true},
+        {text: "A LEFT JOIN was used where an INNER JOIN was needed", correct: false},
+        {text: "GROUP BY was forgotten", correct: false},
+        {text: "ORDER BY dropped the rows", correct: false},
+      ],
+      explanation: "INNER JOIN keeps only rows matched on both sides, so customers with no orders vanish. LEFT JOIN keeps every left row and fills the missing order columns with NULL. ORDER BY never removes rows, and the symptom is the opposite of using LEFT.",
+    },
+    {
+      prompt: "WHERE country = NULL returns no rows even for customers with a missing country. Why?",
+      options: [
+        {text: "Any comparison with NULL yields 'unknown', never true, so the row is not kept", correct: true},
+        {text: "NULL equals the empty string, which no country matches", correct: false},
+        {text: "= cannot be used in a WHERE clause", correct: false},
+        {text: "NULL is automatically converted to 0", correct: false},
+      ],
+      explanation: "NULL means 'unknown', and three-valued logic makes any comparison with it 'unknown' rather than true. You must use IS NULL / IS NOT NULL. NULL is not the empty string and is not 0.",
+    },
+    {
+      prompt: "Which choice best handles 'show the country, or the word unknown when it is missing'?",
+      options: [
+        {text: "COALESCE(country, 'unknown')", correct: true},
+        {text: "NULLIF(country, 'unknown')", correct: false},
+        {text: "country = 'unknown'", correct: false},
+        {text: "CAST(country AS TEXT)", correct: false},
+      ],
+      explanation: "COALESCE returns the first non-NULL argument, supplying a default. NULLIF does the reverse - it produces NULL when two values are equal. Comparison and CAST do not substitute a default.",
+    },
+    {
+      prompt: "You need a per-row running total of order amounts while keeping every order row. Which tool fits?",
+      options: [
+        {text: "SUM(total) OVER (ORDER BY created_at)", correct: true},
+        {text: "SUM(total) with GROUP BY created_at", correct: false},
+        {text: "A subquery returning AVG(total)", correct: false},
+        {text: "HAVING SUM(total) > 0", correct: false},
+      ],
+      explanation: "A window function (SUM ... OVER (ORDER BY ...)) computes across related rows without collapsing them - exactly a running total. GROUP BY would fold the rows into summaries, and HAVING only filters groups.",
+    },
+    {
+      prompt: "Which statement about subqueries and EXISTS is correct?",
+      options: [
+        {text: "NOT EXISTS handles a NULL in the related column safely, while NOT IN can silently return no rows", correct: true},
+        {text: "EXISTS returns the matched rows themselves to the outer query", correct: false},
+        {text: "A subquery can never be rewritten as a join", correct: false},
+        {text: "IN and EXISTS always behave identically", correct: false},
+      ],
+      explanation: "EXISTS only asks whether the subquery returns any row, so a NULL match is treated as false and behaves predictably; NOT IN treats a NULL in its list as unknown and can return nothing. EXISTS returns a yes/no, not rows, and many subqueries can be rewritten as joins.",
+    },
+    {
+      prompt: "When is a CTE (WITH) the better choice over a subquery?",
+      options: [
+        {text: "When one query has grown long and you want to name and read its steps top-down", correct: true},
+        {text: "When the result must persist as a reusable database object", correct: false},
+        {text: "When you need to grant permissions on the result", correct: false},
+        {text: "Whenever any query touches more than one table", correct: false},
+      ],
+      explanation: "A CTE names a temporary result inside a single statement, making a long query readable in steps. A result that must persist and be reused across queries is a view; permissions are DCL; and multi-table queries do not require a CTE.",
+    },
+  ]}
+/>
+
+:::tip You finished Stage 1
+You can read and write multi-table queries, summarise with aggregates, join with the right join type, nest questions with subqueries and `EXISTS`, compose with CTEs, compute across rows with window functions, and change data safely. Next is **[Stage 2 - Designing a Database](../02-designing/index.mdx)**, where you decide what the tables should be.
+:::
+
+<details>
+<summary>Stage 1 cheatsheet (reference)</summary>
+
+**Reading one table**
+
+| Clause | Does | Example |
+|---|---|---|
+| `SELECT ... AS` | choose / rename columns | `SELECT total * 1.23 AS gross` |
+| `DISTINCT` | drop duplicate rows | `SELECT DISTINCT country` |
+| `WHERE` | keep matching rows | `WHERE total >= 30` |
+| `ORDER BY ... ASC\|DESC` | sort the result | `ORDER BY total DESC, name` |
+| `LIMIT` / `OFFSET` | cap / skip rows | `LIMIT 3 OFFSET 10` |
+
+**WHERE building blocks**: `=` `<>` `<` `>` `<=` `>=`, `AND`/`OR`/`NOT`, `BETWEEN a AND b`, `IN (...)`/`NOT IN`, `LIKE` (`%` = any run, `_` = one char), `IS NULL`/`IS NOT NULL`.
+
+**Aggregating** - `COUNT(*)`, `SUM`, `AVG`, `MIN`, `MAX`.
+
+```sql
+SELECT customer_id, SUM(total) AS spent
+FROM orders
+WHERE created_at >= '2026-01-01'   -- WHERE filters rows (before grouping)
+GROUP BY customer_id
+HAVING SUM(total) > 50;            -- HAVING filters groups (after aggregate)
+```
+
+Every non-aggregated `SELECT` column must appear in `GROUP BY`.
+
+**Joins**
+
+| Join | Keeps |
+|---|---|
+| `INNER JOIN` (plain `JOIN`) | rows matched on both sides |
+| `LEFT JOIN` | every left row (right is `NULL` when unmatched) |
+| `RIGHT JOIN` | mirror of `LEFT` |
+| `FULL OUTER JOIN` | every row from both sides |
+| `CROSS JOIN` | every left row paired with every right row |
+
+```sql
+SELECT c.name, COUNT(o.id) AS orders
+FROM customers c
+LEFT JOIN orders o ON o.customer_id = c.id
+GROUP BY c.id;
+```
+
+**Subqueries** - `WHERE total > (SELECT AVG(total) FROM orders)`, `WHERE id IN (SELECT ...)`, and correlated `EXISTS` / `NOT EXISTS` (safe with `NULL`, unlike `NOT IN`).
+
+**CTE (`WITH`)** - name a step, then build on it:
+
+```sql
+WITH spend AS (
+  SELECT customer_id, SUM(total) AS total_spent FROM orders GROUP BY customer_id
+)
+SELECT * FROM spend WHERE total_spent > 30;
+```
+
+**Set operations** - `UNION` (dedup), `UNION ALL` (keep dups), `INTERSECT` (in both), `EXCEPT` (in first not second). Both queries must return the same columns.
+
+**Window functions** - per-row calculation over an `OVER (...)` window, without collapsing rows:
+
+```sql
+SELECT id, total,
+       SUM(total) OVER (ORDER BY created_at)                AS running_total,
+       ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY total DESC) AS rn,
+       LAG(total)  OVER (ORDER BY created_at)               AS prev_total
+FROM orders;
+```
+
+Ranking: `ROW_NUMBER` (1,2,3), `RANK` (1,1,3), `DENSE_RANK` (1,1,2). Frames: `ROWS BETWEEN 1 PRECEDING AND CURRENT ROW`.
+
+**Expressions & NULL** - `CASE WHEN ... THEN ... ELSE ... END`, `COALESCE(a, b)` (first non-NULL), `NULLIF(a, b)`.
+
+**String funcs** - `UPPER`/`LOWER`, `LENGTH`, `SUBSTR(s, start, len)` (1-based), `a || b`, `TRIM`, `REPLACE`.
+
+**Date funcs (SQLite)** - `date(d, '+7 days')`, `strftime('%Y-%m', d)`, `julianday(d2) - julianday(d1)`. Store timestamps in UTC; convert only at the edges.
+
+**Changing data** - `INSERT INTO t (...) VALUES (...)`, `UPDATE t SET ... WHERE ...`, `DELETE FROM t WHERE ...`. Always preview the `WHERE` with a `SELECT` first.
+
+</details>

@@ -1,0 +1,143 @@
+---
+sidebar_position: 6
+title: JSON in a relational database
+sidebar_label: JSON columns
+description: Store and query JSON inside a relational database - the convergence of relational and document models, hands-on.
+---
+
+import SqlRunner from '@site/src/components/SqlRunner';
+import Quiz from '@site/src/components/Quiz';
+
+# JSON in a relational database
+
+Stage 0 called out **convergence** - relational databases absorbing features that once needed a separate store. The clearest example: a relational table can hold a **JSON document** in a column and query inside it. You get document-style flexibility without leaving SQL or giving up ACID. PostgreSQL has the `jsonb` type; SQLite has JSON functions (used below); MySQL and others have JSON too.
+
+## Storing JSON
+
+Put semi-structured or variable data in a JSON (text) column, alongside normal typed columns:
+
+<SqlRunner
+  query={`CREATE TABLE product (
+  id    INTEGER PRIMARY KEY,
+  name  TEXT,
+  attrs TEXT   -- a JSON document, e.g. {"color":"blue","sizes":[40,41]}
+);
+INSERT INTO product VALUES
+  (1, 'Running shoe', '{"color":"blue","waterproof":true,"sizes":[40,41,42]}'),
+  (2, 'Sun cap',      '{"color":"beige","sizes":["S","M","L"]}');
+
+SELECT * FROM product;`}
+  height={200}
+/>
+
+## Querying inside JSON
+
+Reach into a document with **`json_extract(doc, '$.path')`**, or the shorthand operators **`->`** (returns JSON) and **`->>`** (returns a plain value):
+
+<SqlRunner
+  query={`SELECT name,
+       attrs ->> 'color'              AS color,
+       json_extract(attrs, '$.sizes[0]') AS first_size
+FROM product;`}
+  height={130}
+/>
+
+`$.color` is a path into the document; `$.sizes[0]` indexes into an array. Filter on it just like a column: `WHERE attrs ->> 'color' = 'blue'`.
+
+## Expanding arrays
+
+A JSON array can be turned into rows with the table-valued **`json_each`**, so you can join or aggregate over nested data:
+
+<SqlRunner
+  query={`SELECT product.name, s.value AS size
+FROM product
+JOIN json_each(product.attrs, '$.sizes') AS s;`}
+  height={130}
+/>
+
+## Indexing and when to use it
+
+JSON querying can be slow because the database parses the document each time. Engines fix this differently: PostgreSQL indexes `jsonb` with a **GIN** index (or indexes a value extracted into a **generated column**); SQLite indexes an expression like `json_extract(attrs,'$.color')`. Index the JSON paths you filter on, just as you would a column.
+
+The judgement call - which echoes [NoSQL modeling](./nosql-modeling.mdx):
+
+- **Real columns** for data that is structured and queried often - you get types, constraints, and easy indexes.
+- **A JSON column** for genuinely variable or sparse attributes that differ per row, or rarely-queried blobs.
+- **A document database** when the *whole* application is document-shaped, not just a corner of it.
+
+Reaching for a JSON column for everything throws away the relational guarantees you spent Stage 2 learning - use it deliberately.
+
+## Try it
+
+Finish the query so it returns the **name and color of every blue item**. The setup is included - change only the `WHERE`, then press Run for an instant verdict.
+
+<SqlRunner
+  query={`CREATE TABLE catalog_item (id INTEGER PRIMARY KEY, name TEXT, attrs TEXT);
+INSERT INTO catalog_item VALUES
+  (1, 'Running shoe', '{"color":"blue","waterproof":true}'),
+  (2, 'Sun cap',      '{"color":"beige"}'),
+  (3, 'Rain jacket',  '{"color":"blue","waterproof":true}');
+
+-- Finish this: name + color, only the blue items
+SELECT name, attrs ->> 'color' AS color
+FROM catalog_item
+WHERE 1=1;`}
+  solution={`CREATE TABLE catalog_item (id INTEGER PRIMARY KEY, name TEXT, attrs TEXT);
+INSERT INTO catalog_item VALUES
+  (1, 'Running shoe', '{"color":"blue","waterproof":true}'),
+  (2, 'Sun cap',      '{"color":"beige"}'),
+  (3, 'Rain jacket',  '{"color":"blue","waterproof":true}');
+SELECT name, attrs ->> 'color' AS color
+FROM catalog_item
+WHERE attrs ->> 'color' = 'blue';`}
+  height={260}
+/>
+
+<details>
+<summary>Show the answer</summary>
+
+Filter on the extracted value just like a column: `WHERE attrs ->> 'color' = 'blue'`. It returns the running shoe and the rain jacket, both blue.
+
+</details>
+
+## Quick quiz
+
+<Quiz
+  title="JSON in relational"
+  questions={[
+    {
+      prompt: "What does the ->> operator return when reading a JSON field?",
+      options: [
+        {text: "A plain SQL value (text/number)", correct: true},
+        {text: "Always a JSON object", correct: false},
+        {text: "The whole document", correct: false},
+        {text: "A boolean only", correct: false},
+      ],
+      explanation: "->> extracts a scalar value; -> returns JSON. json_extract is the longhand.",
+    },
+    {
+      prompt: "When is a JSON column the right choice over normal columns?",
+      options: [
+        {text: "For genuinely variable or sparse, rarely-queried attributes that differ per row", correct: true},
+        {text: "For everything - it is simpler", correct: false},
+        {text: "For your primary keys", correct: false},
+        {text: "Only when the database has no tables", correct: false},
+      ],
+      explanation: "Structured, frequently-queried data belongs in typed columns (types, constraints, indexes). JSON suits variable/sparse data.",
+    },
+    {
+      prompt: "Why can querying JSON be slow, and how is it addressed?",
+      options: [
+        {text: "The document is parsed each time; index the JSON paths you filter on (GIN / expression index)", correct: true},
+        {text: "JSON cannot be indexed at all", correct: false},
+        {text: "It is always faster than columns", correct: false},
+        {text: "You must convert it to XML first", correct: false},
+      ],
+      explanation: "Parsing per query is the cost; PostgreSQL GIN-indexes jsonb (or a generated column), SQLite indexes a json_extract expression.",
+    },
+  ]}
+/>
+
+:::tip Next up
+That rounds out Stage 5. **Stage 6 - Scaling and Advanced** is the final stretch: replication, sharding, consistency, and vector search.
+:::

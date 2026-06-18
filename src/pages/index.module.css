@@ -1,0 +1,205 @@
+.heroBanner {
+  padding: 4rem 0 3.5rem;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(
+    180deg,
+    var(--ifm-color-primary-contrast-background) 0%,
+    var(--ifm-background-color) 100%
+  );
+}
+
+.heroLogo {
+  display: block;
+  margin: 0 auto 1rem;
+}
+
+.heroTitle {
+  font-size: 3rem;
+  margin-bottom: 0.5rem;
+}
+
+.heroSubtitle {
+  font-size: 1.3rem;
+  font-weight: 500;
+  color: var(--ifm-color-emphasis-700);
+  margin-bottom: 1rem;
+}
+
+.heroLede {
+  max-width: 640px;
+  margin: 0 auto 2rem;
+  font-size: 1.05rem;
+  color: var(--ifm-color-emphasis-800);
+}
+
+.buttons {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+@media screen and (max-width: 996px) {
+  .heroBanner {
+    padding: 2.5rem 1rem;
+  }
+  .heroTitle {
+    font-size: 2.2rem;
+  }
+}
+
+/* Highlights */
+.highlights {
+  padding: 2.5rem 0 1rem;
+}
+
+.highlightCard {
+  height: 100%;
+  padding: 1.25rem 1.25rem 1rem;
+  text-align: center;
+}
+
+.highlightIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  margin-bottom: 0.75rem;
+  border-radius: 50%;
+  color: var(--ifm-color-primary);
+  background: var(--ifm-color-primary-contrast-background);
+}
+
+.highlightTitle {
+  font-size: 1.15rem;
+  margin-bottom: 0.5rem;
+}
+
+.highlightBody {
+  color: var(--ifm-color-emphasis-700);
+  margin: 0;
+}
+
+/* Stage path */
+.stages {
+  padding: 1.5rem 0 4rem;
+}
+
+.stagesHeading {
+  text-align: center;
+  font-size: 1.9rem;
+  margin-bottom: 0.4rem;
+}
+
+.stagesIntro {
+  text-align: center;
+  color: var(--ifm-color-emphasis-700);
+  margin-bottom: 2rem;
+}
+
+.stageGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1rem;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.stageCard {
+  display: flex;
+  gap: 1rem;
+  padding: 1.1rem 1.25rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: var(--ifm-global-radius);
+  background: var(--ifm-background-surface-color);
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.stageCard:hover {
+  border-color: var(--ifm-color-primary);
+  transform: translateY(-2px);
+  box-shadow: var(--ifm-global-shadow-lw);
+  text-decoration: none;
+}
+
+.stageNum {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 50%;
+  background: var(--ifm-color-primary);
+  color: #fff;
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.stageBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1 1 auto;
+}
+
+.stageTitle {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--ifm-heading-color);
+}
+
+.stageBlurb {
+  font-size: 0.92rem;
+  color: var(--ifm-color-emphasis-700);
+  line-height: 1.45;
+}
+
+.stageNumDone {
+  background: var(--ifm-color-success);
+}
+
+.stageProgress {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  /* Pin to the bottom of the card so bars align across a row. */
+  margin-top: auto;
+  padding-top: 0.6rem;
+}
+
+.stageBar {
+  flex: 1 1 auto;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--ifm-color-emphasis-200);
+  overflow: hidden;
+}
+
+.stageBarFill {
+  display: block;
+  height: 100%;
+  background: var(--ifm-color-primary);
+  transition: width 0.3s ease;
+}
+
+.stageCount {
+  flex: 0 0 auto;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ifm-color-emphasis-600);
+}
+
+.resetLink {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--ifm-color-primary);
+  text-decoration: underline;
+  cursor: pointer;
+}

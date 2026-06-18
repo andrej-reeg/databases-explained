@@ -1,0 +1,95 @@
+---
+sidebar_position: 4
+title: ORMs and migrations
+sidebar_label: ORMs & migrations
+description: How applications talk to the database (ORMs and when to drop to raw SQL) and how schemas change safely over time (versioned migrations).
+---
+
+import Quiz from '@site/src/components/Quiz';
+
+# ORMs and migrations
+
+An application rarely hand-writes SQL strings everywhere, and its schema never stops changing. Two tools manage that relationship over a project's life: an **ORM** for talking to the database, and **migrations** for evolving it.
+
+## ORMs: objects instead of SQL strings
+
+An **object-relational mapper** maps tables to classes and rows to objects, so you write `user.orders` instead of a `JOIN`. Every ecosystem has one: Prisma and Drizzle (TypeScript), SQLAlchemy and the Django ORM (Python), ActiveRecord (Rails), Hibernate/JPA (Java), Entity Framework (.NET).
+
+What they buy you:
+
+- **Speed** on ordinary CRUD - create, read, update, delete without writing SQL.
+- **Safety** - they parameterize queries by default, closing the door on SQL injection.
+- **Portability** - much of the code is independent of which database you run.
+
+Where they hurt, and you should **drop to raw SQL**:
+
+- **Complex reports and analytics** - heavy aggregations, window functions, and CTEs are often clearer and faster written directly.
+- **Performance-critical paths** - when you need to control exactly what runs.
+- **The N+1 trap** - ORMs make it *easy* to lazily load related data in a loop, firing one query per row (the [N+1 problem](../03-correct-and-fast/indexes.mdx#the-execution-mental-model)). Use the ORM's eager-loading / `JOIN` option.
+
+In 2026, **typed query builders** (Drizzle, Kysely) sit in the middle - close to SQL, but type-checked and parameterized - a popular alternative to a full ORM.
+
+## Migrations: version control for your schema
+
+A schema is never finished - you add a column, a table, an index. A **migration** is a versioned, ordered script that records one such change. Checked into git and applied by a tool, migrations guarantee every environment - your laptop, staging, production - has the *same* structure, and that **nobody edits production by hand**.
+
+```sql
+-- 0007_add_signup_date.sql
+ALTER TABLE customers ADD COLUMN signup_date DATE;
+```
+
+A migration usually has an **up** (apply) and ideally a **down** (revert) step, so a bad change can be rolled back. Tools include Flyway, Liquibase, Alembic (Python), Rails migrations, Prisma Migrate, and Atlas - many built into the ORM.
+
+For a live system you cannot just rename a column out from under running code. The 2026 standard is the **expand-contract** pattern for **zero-downtime** changes: add the new shape, migrate data and deploy code that writes both, then drop the old shape once nothing uses it. Declarative-schema tools (Atlas, Prisma) increasingly generate these steps for you.
+
+## Quick quiz
+
+<Quiz
+  title="ORMs and migrations"
+  questions={[
+    {
+      prompt: "When is dropping from an ORM to raw SQL most justified?",
+      options: [
+        {text: "Complex analytical queries and performance-critical paths", correct: true},
+        {text: "Simple create/read/update/delete on one table", correct: false},
+        {text: "Whenever you possibly can - ORMs are useless", correct: false},
+        {text: "Never - ORMs handle everything equally well", correct: false},
+      ],
+      explanation: "ORMs shine at routine CRUD. Heavy aggregations, window functions, and hot paths are where hand-written SQL pays off.",
+    },
+    {
+      prompt: "What problem do ORMs make especially easy to introduce?",
+      options: [
+        {text: "The N+1 query problem - one query per row in a loop", correct: true},
+        {text: "SQL injection", correct: false},
+        {text: "Dropping the database", correct: false},
+        {text: "Losing referential integrity", correct: false},
+      ],
+      explanation: "Lazy loading related data per row causes N+1. Use eager loading / a JOIN. (ORMs actually reduce injection risk, by parameterizing.)",
+    },
+    {
+      prompt: "What is the point of a migration?",
+      options: [
+        {text: "A versioned, repeatable schema change applied identically everywhere", correct: true},
+        {text: "A backup of the data", correct: false},
+        {text: "A way to query faster", correct: false},
+        {text: "A tool for editing production by hand", correct: false},
+      ],
+      explanation: "Migrations are version control for structure - ordered scripts in git so every environment matches and changes are repeatable and reversible.",
+    },
+    {
+      prompt: "How do you rename a column on a live system without downtime?",
+      options: [
+        {text: "Expand-contract: add the new column, dual-write, migrate, then drop the old one", correct: true},
+        {text: "Rename it in one migration during peak traffic", correct: false},
+        {text: "Edit the production database directly", correct: false},
+        {text: "You cannot change a live schema at all", correct: false},
+      ],
+      explanation: "Expand-contract adds the new shape and keeps both working until code no longer needs the old one, then removes it - no moment where running code breaks.",
+    },
+  ]}
+/>
+
+:::tip Next up
+**[Connections and serverless](./connections.mdx)** - why opening a database connection is expensive, how pooling fixes it, and where databases run in 2026.
+:::

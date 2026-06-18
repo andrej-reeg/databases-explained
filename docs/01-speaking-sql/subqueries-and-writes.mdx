@@ -1,0 +1,154 @@
+---
+sidebar_position: 5
+title: Subqueries and writes
+sidebar_label: Subqueries
+description: Nest queries with subqueries and EXISTS, then insert, update and delete rows safely.
+---
+
+import SqlRunner from '@site/src/components/SqlRunner';
+
+# Subqueries and writes
+
+Two skills finish Stage 1: asking a question whose answer depends on another question, and changing the data itself.
+
+## Subqueries: a query inside a query
+
+A **subquery** is a `SELECT` wrapped in parentheses and used inside another statement. It lets you answer "which orders are above average?" - a question you cannot ask in one flat query, because you need the average before you can compare against it.
+
+<SqlRunner query={`SELECT id, total
+FROM orders
+WHERE total > (SELECT AVG(total) FROM orders);`} />
+
+The inner query computes one number, the average total. The outer query then uses it like a constant. Subqueries also fit naturally after `IN`, to filter by a set computed elsewhere:
+
+<SqlRunner query={`SELECT name
+FROM customers
+WHERE id IN (SELECT customer_id FROM orders WHERE total > 50);`} />
+
+Read it inside-out: find the customer ids on big orders, then return the names of those customers. Many subqueries can be rewritten as joins and vice versa; reach for whichever reads more clearly for the question you are asking.
+
+### EXISTS: does the subquery return anything?
+
+`IN` compares against a *list of values*. **`EXISTS`** asks a different question: does this related subquery return **any row at all**? It is the natural way to express "customers who have placed at least one order." The subquery refers back to the outer row (`o.customer_id = c.id`), so it is checked per customer - this is a *correlated* subquery.
+
+<SqlRunner query={`SELECT name
+FROM customers c
+WHERE EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id);`} />
+
+**`NOT EXISTS`** flips it - "customers with no orders" (Cleo):
+
+<SqlRunner query={`SELECT name
+FROM customers c
+WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id);`} />
+
+:::warning IN and EXISTS differ on NULL
+`NOT IN` treats `NULL` as *unknown*: if the subquery's list contains even one `NULL`, `NOT IN` can return no rows at all - a classic silent bug. `NOT EXISTS` treats a missing match as simply *false*, so it behaves predictably. When the subquery column might be `NULL`, prefer `EXISTS` / `NOT EXISTS`.
+:::
+
+## Changing data: INSERT, UPDATE, DELETE
+
+Reading is only half of SQL. Three statements change what is stored.
+
+`INSERT` adds rows. `UPDATE` changes existing rows. `DELETE` removes them. Run this, then **Reset data** to restore the rows:
+
+<SqlRunner
+  query={`INSERT INTO customers (name, country) VALUES ('Dee', 'LT');
+UPDATE customers SET country = 'IE' WHERE id = 3;
+DELETE FROM customers WHERE id = 1;
+SELECT * FROM customers;`}
+  height={150}
+/>
+
+:::warning The WHERE clause is not optional in practice
+`UPDATE` and `DELETE` apply to **every row that matches the `WHERE`** - and if you forget the `WHERE`, that means *every row in the table*. `DELETE FROM customers;` empties the table. Before you run an update or delete, run the same `WHERE` as a `SELECT` first and check it returns exactly the rows you intend. This habit saves real data.
+:::
+
+In a real application these changes usually run inside a **transaction**, so a group of writes either all succeed or all roll back together. That is the heart of Stage 3 - for now, just know that a bare `UPDATE` or `DELETE` takes effect immediately.
+
+:::info These are write operations
+The boxes below change data. Press **Reset data** to restore the original rows whenever you want a clean slate.
+:::
+
+## UPSERT: insert, or update if it already exists
+
+An **UPSERT** inserts a row, but updates it instead when a key already exists - one statement that means "make this row look like this, whether or not it is there." SQLite spells it `INSERT ... ON CONFLICT(col) DO UPDATE SET ...`.
+
+Without it you would `SELECT` first, then branch to an `INSERT` or `UPDATE` - two round trips and a race condition. The first run here inserts product `5`; run it again with a different price and the `ON CONFLICT` branch updates instead of erroring:
+
+<SqlRunner
+  query={`INSERT INTO products (id, name, price)
+VALUES (5, 'Wool beanie', 18.00)
+ON CONFLICT(id) DO UPDATE SET price = excluded.price;
+
+SELECT * FROM products WHERE id = 5;`}
+  height={150}
+/>
+
+The keyword **`excluded`** refers to the row you *tried* to insert, so `excluded.price` is the new value. `DO NOTHING` is the other option - skip silently on conflict instead of updating.
+
+## RETURNING: get the changed rows back
+
+A **`RETURNING`** clause hands back the rows a write just affected, in the same statement - no follow-up `SELECT`. It is the clean way to read a generated id or confirm new values. Modern SQLite, PostgreSQL, and others support it.
+
+Insert a customer and get the row (with whatever the database filled in) straight back:
+
+<SqlRunner
+  query={`INSERT INTO customers (name, country)
+VALUES ('Gus', 'IE')
+RETURNING id, name, country;`}
+  height={110}
+/>
+
+`RETURNING` works on `UPDATE` and `DELETE` too - here it confirms exactly which row changed and to what:
+
+<SqlRunner
+  query={`UPDATE orders SET total = total + 5
+WHERE id = 101
+RETURNING id, total;`}
+  height={110}
+/>
+
+## Exercise
+
+Use the sandbox.
+
+<SqlRunner query={`SELECT id, total
+FROM orders
+WHERE total > (SELECT AVG(total) FROM orders);`} />
+
+**1. Worked.** Find orders larger than the average order total (the query above).
+
+**2. Finish it.** Return the names of customers who have placed at least one order. Fill the blanks, then run - the box checks your result.
+
+<SqlRunner
+  query={`SELECT name
+FROM customers
+WHERE id ____ (SELECT ____ FROM orders);`}
+  solution={`SELECT name FROM customers WHERE id IN (SELECT customer_id FROM orders);`}
+/>
+
+**3. Write it yourself.** Write the safe two-step move to raise Ben's order `102` total to 30.00: first the `SELECT` that previews the affected row, then the `UPDATE`.
+
+<details>
+<summary>Show answers</summary>
+
+**2.** `WHERE id IN (SELECT customer_id FROM orders);`
+
+**3.**
+
+```sql
+-- preview first
+SELECT * FROM orders WHERE id = 102;
+-- then change
+UPDATE orders SET total = 30.00 WHERE id = 102;
+```
+
+</details>
+
+## Almost there
+
+You can now query, filter, sort, aggregate, join, nest questions, and change data - and you think about all of it as describing sets of rows. That is the working-practitioner line.
+
+:::tip Next up
+**[CTEs and set operations](./composing-queries.mdx)** keep longer queries readable with `WITH`, and combine results with `UNION`, `INTERSECT`, and `EXCEPT`.
+:::

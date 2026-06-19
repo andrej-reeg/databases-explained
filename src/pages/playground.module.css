@@ -74,8 +74,17 @@
 }
 
 @media (max-width: 860px) {
+  /* Stack, and put the task + runner first; the picker drops below. */
   .layout {
-    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+  .workspace {
+    order: 1;
+  }
+  .sidebar {
+    order: 2;
   }
 }
 
@@ -127,6 +136,12 @@
   overflow-y: auto;
   border: 1px solid var(--ifm-color-emphasis-200);
   border-radius: 8px;
+}
+
+@media (max-width: 860px) {
+  .list {
+    max-height: 50vh;
+  }
 }
 
 .list li + li {
@@ -306,6 +321,36 @@
 
 .navBtn svg {
   flex: 0 0 auto;
+}
+
+/* Phones */
+@media (max-width: 600px) {
+  .page {
+    padding: 1.5rem 1rem 3rem;
+  }
+  .title {
+    font-size: 1.9rem;
+  }
+  .lede {
+    font-size: 0.95rem;
+  }
+  .taskTitle {
+    font-size: 1.3rem;
+  }
+  .prompt {
+    font-size: 1rem;
+  }
+  .nav {
+    gap: 0.4rem;
+  }
+  .navBtn {
+    padding: 0.5rem 0.4rem;
+    font-size: 0.85rem;
+  }
+  /* Keep the running total / wide result tables scrollable, not squished. */
+  .workspace {
+    overflow-x: hidden;
+  }
 }
 
 .navBtn:hover {

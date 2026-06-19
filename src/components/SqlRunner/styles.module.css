@@ -8,6 +8,7 @@
 
 .bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem 0.75rem;
@@ -34,6 +35,10 @@
   font-weight: 600;
   cursor: pointer;
   border: 1px solid var(--ifm-color-primary);
+  /* Never let a label like "Show solution" wrap to two lines when the
+     toolbar is tight - the bar wraps to a new row instead. */
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .run {

@@ -74,6 +74,7 @@ Every key term in the course, defined in one line. Use it as a quick reference w
 - **Embed vs reference** - the document-modeling choice between nesting related data or linking to it.
 - **ER model (Entity-Relationship)** - a diagram of entities, their attributes, and the relationships between them.
 - **ETL** - transform data before loading it into the warehouse.
+- **Eventual consistency** - replicas may lag briefly but all converge to the same value once writes stop.
 - **EXISTS** - a subquery operator that is true when the subquery returns any row.
 - **EXPLAIN / EXPLAIN ANALYZE** - shows a query's execution plan; `ANALYZE` adds actual run statistics.
 - **Expand-contract** - a zero-downtime migration: add the new, dual-write, migrate reads, drop the old.
@@ -106,6 +107,7 @@ Every key term in the course, defined in one line. Use it as a quick reference w
 - **Index** - a sorted lookup structure that speeds reads on chosen columns, at a small write cost.
 - **Isolation** - the "I" in ACID: concurrent transactions do not see each other's partial work.
 - **Isolation level** - how strictly transactions are isolated (Read Uncommitted to Serializable).
+- **IVF (Inverted File index)** - an approximate-nearest-neighbor method that clusters vectors and searches only the nearest clusters.
 
 ## J
 
@@ -175,6 +177,7 @@ Every key term in the course, defined in one line. Use it as a quick reference w
 - **Re-embedding** - regenerating all stored vectors after changing the embedding model.
 - **Reranking** - reordering retrieved candidates with a stronger relevance model.
 - **Replication** - keeping copies of data on multiple nodes.
+- **Replication lag** - the delay between a write on the primary and its appearance on a replica.
 - **RETURNING** - a clause that returns rows affected by an `INSERT`, `UPDATE`, or `DELETE`.
 - **Role** - a named set of privileges granted to users (DCL).
 - **Row** - a single record in a table.
@@ -201,6 +204,7 @@ Every key term in the course, defined in one line. Use it as a quick reference w
 - **Stored procedure** - reusable procedural logic stored and run in the database.
 - **Subquery** - a query nested inside another query.
 - **Surrogate key** - a generated, stable identifier used as the primary key.
+- **Synchronous vs asynchronous replication** - synchronous waits for replicas to confirm a write (safer, slower); asynchronous does not (faster, can lose recent writes).
 
 ## T
 
@@ -210,6 +214,7 @@ Every key term in the course, defined in one line. Use it as a quick reference w
 - **Time-series database** - a store optimized for time-stamped data, retention, and downsampling.
 - **TLS / sslmode** - encryption for database connections; `verify-full` also verifies server identity.
 - **Transaction** - a group of changes treated as a single all-or-nothing unit.
+- **TrueTime** - Google Spanner's API that bounds clock uncertainty across datacenters, enabling globally consistent transaction ordering.
 - **tsvector** - PostgreSQL's preprocessed full-text search column type.
 
 ## U

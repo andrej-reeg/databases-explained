@@ -6,6 +6,7 @@ description: Nest queries with subqueries and EXISTS, then insert, update and de
 ---
 
 import SqlRunner from '@site/src/components/SqlRunner';
+import Quiz from '@site/src/components/Quiz';
 
 # Subqueries and writes
 
@@ -35,7 +36,7 @@ Read it inside-out: find the customer ids on big orders, then return the names o
 FROM customers c
 WHERE EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id);`} />
 
-**`NOT EXISTS`** flips it - "customers with no orders" (Cleo):
+**`NOT EXISTS`** flips it - "customers with no orders" (Cleo and Eve):
 
 <SqlRunner query={`SELECT name
 FROM customers c
@@ -127,7 +128,7 @@ WHERE id ____ (SELECT ____ FROM orders);`}
   solution={`SELECT name FROM customers WHERE id IN (SELECT customer_id FROM orders);`}
 />
 
-**3. Write it yourself.** Write the safe two-step move to raise Ben's order `102` total to 30.00: first the `SELECT` that previews the affected row, then the `UPDATE`.
+**3. Write it yourself.** Write the safe two-step move to raise Ana's order `102` total to 30.00: first the `SELECT` that previews the affected row, then the `UPDATE`.
 
 <details>
 <summary>Show answers</summary>
@@ -144,6 +145,74 @@ UPDATE orders SET total = 30.00 WHERE id = 102;
 ```
 
 </details>
+
+## Quick quiz
+
+<Quiz
+  title="Subqueries and writes"
+  questions={[
+    {
+      prompt: "What does a subquery in WHERE total > (SELECT AVG(total) FROM orders) give the outer query?",
+      options: [
+        {text: "A single value (the average) used like a constant", correct: true},
+        {text: "A list of all order ids", correct: false},
+        {text: "The whole orders table", correct: false},
+        {text: "A boolean for each row", correct: false},
+      ],
+      explanation: "AVG(total) returns one number; the outer query compares each order's total against it. The average here is 54.00.",
+    },
+    {
+      prompt: "What does EXISTS test?",
+      options: [
+        {text: "Whether the (often correlated) subquery returns at least one row", correct: true},
+        {text: "Whether a value is in a list", correct: false},
+        {text: "Whether a column is NULL", correct: false},
+        {text: "Whether two tables are equal", correct: false},
+      ],
+      explanation: "EXISTS is true as soon as the subquery yields any row. It is the natural way to ask 'does a related row exist?'",
+    },
+    {
+      prompt: "NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id) returns which customers?",
+      options: [
+        {text: "Cleo and Eve - the two with no orders", correct: true},
+        {text: "Only Cleo", correct: false},
+        {text: "Ana, Ben, Dee, Finn", correct: false},
+        {text: "All six customers", correct: false},
+      ],
+      explanation: "Only Cleo (3) and Eve (5) have no matching order, so NOT EXISTS keeps exactly those two.",
+    },
+    {
+      prompt: "Why prefer NOT EXISTS over NOT IN when the subquery column might be NULL?",
+      options: [
+        {text: "NOT IN can return no rows at all if the list contains a NULL; NOT EXISTS behaves predictably", correct: true},
+        {text: "NOT IN is slower", correct: false},
+        {text: "NOT EXISTS allows more columns", correct: false},
+        {text: "They are identical in every case", correct: false},
+      ],
+      explanation: "A NULL in the NOT IN list makes the comparison 'unknown', which can silently drop every row. NOT EXISTS treats a missing match as simply false.",
+    },
+    {
+      prompt: "In an UPSERT, what does the keyword 'excluded' refer to?",
+      options: [
+        {text: "The row you tried to insert (its values, e.g. excluded.price)", correct: true},
+        {text: "The rows skipped by a WHERE clause", correct: false},
+        {text: "The existing row already in the table", correct: false},
+        {text: "Rows removed by a previous DELETE", correct: false},
+      ],
+      explanation: "On a conflict, 'excluded' is the would-be-inserted row, so DO UPDATE SET price = excluded.price applies the new value.",
+    },
+    {
+      prompt: "What does a RETURNING clause do?",
+      options: [
+        {text: "Hands back the rows a write affected in the same statement - no follow-up SELECT", correct: true},
+        {text: "Rolls back the write", correct: false},
+        {text: "Returns rows to the start of the table", correct: false},
+        {text: "Only works on SELECT", correct: false},
+      ],
+      explanation: "RETURNING lets an INSERT, UPDATE, or DELETE report the affected rows (e.g. a generated id) directly, avoiding a second query.",
+    },
+  ]}
+/>
 
 ## Almost there
 

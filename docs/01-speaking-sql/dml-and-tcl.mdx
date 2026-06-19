@@ -27,11 +27,11 @@ Every query box below runs a real SQLite database **in your browser** - the same
 
 ### INSERT - add rows
 
-`INSERT` adds new rows. List the columns, then the values:
+`INSERT` adds new rows. List the columns, then the values. Here we add a seventh customer (ids 1-6 are taken, so we use `7`):
 
 <SqlRunner
   query={`INSERT INTO customers (id, name, country)
-VALUES (4, 'Dee', 'LT');
+VALUES (7, 'Gus', 'GB');
 
 SELECT * FROM customers;`}
   height={140}
@@ -84,7 +84,7 @@ Recall from [the ACID section](../00-orientation/intro.mdx#acid-why-relational-d
 
 ### ROLLBACK - undo everything since BEGIN
 
-Run this. The first count is `0` (rows gone inside the transaction); after `ROLLBACK` the second count is back to `3`:
+Run this. The first count is `0` (rows gone inside the transaction); after `ROLLBACK` the second count is back to `5`:
 
 <SqlRunner
   query={`BEGIN;

@@ -6,6 +6,7 @@ description: Combine rows across tables, and understand why INNER and LEFT joins
 ---
 
 import SqlRunner from '@site/src/components/SqlRunner';
+import Quiz from '@site/src/components/Quiz';
 
 # Joining tables
 
@@ -59,7 +60,11 @@ You will reach for `INNER` and `LEFT` almost every time. Three more exist; recog
 
 **`RIGHT JOIN`** is just a `LEFT JOIN` with the tables swapped, so most people stick to `LEFT` for consistency. **`FULL OUTER JOIN`** keeps unmatched rows from *both* tables at once - useful for reconciliation ("which records exist on one side but not the other?").
 
-**`CROSS JOIN`** has no `ON` condition. It produces the **Cartesian product** - every combination of left and right rows. Three customers and three products give nine pairs:
+:::note Dialect note
+`RIGHT JOIN` and `FULL OUTER JOIN` are long-standing in PostgreSQL, SQL Server, and MySQL, but **SQLite only added them in 3.39** (2022). This sandbox is newer, so they run here - just know older SQLite builds reject them.
+:::
+
+**`CROSS JOIN`** has no `ON` condition. It produces the **Cartesian product** - every combination of left and right rows. Six customers and four products give twenty-four pairs (6 × 4):
 
 <SqlRunner query={`SELECT customers.name, products.name AS product
 FROM customers
@@ -82,6 +87,34 @@ GROUP BY customers.id;`}
 Because it is a `LEFT JOIN`, Cleo appears with a count of `0`. With an inner join she would be missing - a subtle but common reporting bug.
 
 Note the `GROUP BY customers.id`, not `customers.name`. Group by the **key**, not a label that might collide: two different customers named "Ana" would silently merge into one row if you grouped by name. The id is unique, so each customer stays a distinct group - you can still `SELECT` the name to display it.
+
+## Self-join: a table joined to itself
+
+A **self-join** joins a table to a second copy of itself, using table aliases to tell the two apart. It is how you compare rows *within* one table - "find pairs," "match a row to a related row." Here we pair customers who share a country (and use `a.id < b.id` so each pair appears once, never paired with itself):
+
+<SqlRunner
+  query={`SELECT a.name AS customer_a, b.name AS customer_b, a.country
+FROM customers a
+JOIN customers b ON a.country = b.country AND a.id < b.id;`}
+  height={150}
+/>
+
+The aliases `a` and `b` are essential - without them the database cannot tell which copy of `customers` you mean. The three Irish customers (Ana, Ben, Finn) yield three pairs and the two Lithuanians (Cleo, Dee) one more; Eve's country is `NULL`, so she never matches - `NULL` is never equal to `NULL`.
+
+## Joining three tables
+
+Joins chain: add another `JOIN` for each table you need. To go from an order to the product names on it, hop `orders` → `order_items` → `products`:
+
+<SqlRunner
+  query={`SELECT orders.id AS order_id, products.name AS product, order_items.quantity
+FROM orders
+JOIN order_items ON order_items.order_id = orders.id
+JOIN products    ON products.id = order_items.product_id
+ORDER BY orders.id;`}
+  height={170}
+/>
+
+Each `JOIN` matches a foreign key to the primary key it points at. `order_items` is a **join table** - it links orders to products and carries the per-line `quantity`. Read the chain top to bottom: every order, its line items, and the product each line refers to.
 
 ## Exercise
 
@@ -129,3 +162,71 @@ ORDER BY spent DESC, customers.name;
 An inner `JOIN` is correct here: "customers who have placed an order" is exactly the rows with a match on both sides.
 
 </details>
+
+## Quick quiz
+
+<Quiz
+  title="Joining tables"
+  questions={[
+    {
+      prompt: "Cleo and Eve have no orders. You run customers INNER JOIN orders. What happens to them?",
+      options: [
+        {text: "They are dropped - an INNER JOIN keeps only rows matched on both sides", correct: true},
+        {text: "They appear with NULL totals", correct: false},
+        {text: "They appear with a total of 0", correct: false},
+        {text: "The query errors", correct: false},
+      ],
+      explanation: "INNER JOIN keeps only matched rows. With no matching order, Cleo and Eve vanish; a LEFT JOIN would keep them with NULLs.",
+    },
+    {
+      prompt: "Which join keeps every customer, filling order columns with NULL where there is no match?",
+      options: [
+        {text: "LEFT JOIN (with customers on the left)", correct: true},
+        {text: "INNER JOIN", correct: false},
+        {text: "CROSS JOIN", correct: false},
+        {text: "A plain JOIN", correct: false},
+      ],
+      explanation: "A LEFT JOIN keeps every row of the left table and pads the right side with NULL when nothing matches.",
+    },
+    {
+      prompt: "A CROSS JOIN of the 6 customers and 4 products returns how many rows?",
+      options: [
+        {text: "24", correct: true},
+        {text: "10", correct: false},
+        {text: "6", correct: false},
+        {text: "4", correct: false},
+      ],
+      explanation: "A CROSS JOIN is the Cartesian product: every left row paired with every right row, so 6 × 4 = 24.",
+    },
+    {
+      prompt: "Why does the lesson GROUP BY customers.id rather than customers.name?",
+      options: [
+        {text: "The id is unique, so two customers sharing a name stay separate groups", correct: true},
+        {text: "Grouping by text is not allowed", correct: false},
+        {text: "name cannot appear in the SELECT list otherwise", correct: false},
+        {text: "It makes the query run faster", correct: false},
+      ],
+      explanation: "Grouping by a non-unique label like name would merge two different people named 'Ana'. The primary key keeps each customer distinct.",
+    },
+    {
+      prompt: "To list each order with the product names on it, you join orders, order_items, and products. What kind of join is this?",
+      options: [
+        {text: "A multi-table (three-table) join chaining one JOIN per table", correct: true},
+        {text: "A self-join", correct: false},
+        {text: "A CROSS JOIN", correct: false},
+        {text: "A FULL OUTER JOIN", correct: false},
+      ],
+      explanation: "Joins chain: orders → order_items → products, each matching a foreign key to its primary key. order_items is the join table linking the two.",
+    },
+    {
+      prompt: "What makes a self-join work?",
+      options: [
+        {text: "Table aliases that name two copies of the same table so you can compare rows within it", correct: true},
+        {text: "A special SELF JOIN keyword", correct: false},
+        {text: "Two different tables with the same columns", correct: false},
+        {text: "Removing the ON condition", correct: false},
+      ],
+      explanation: "A self-join joins a table to itself; aliases (e.g. a and b) distinguish the two copies so the ON condition can relate one row to another.",
+    },
+  ]}
+/>

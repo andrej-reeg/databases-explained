@@ -110,6 +110,24 @@ The join table often carries its own attributes - here `quantity`, a fact that b
 
 Rarer: each row on one side matches at most one on the other (a user and their settings row). Model it as a foreign key with a `UNIQUE` constraint, or fold the columns into one table unless there is a reason to split.
 
+```mermaid
+erDiagram
+    accTitle: One-to-one - a user has one settings row
+    accDescr: One user relates to exactly one settings row. The user_settings table holds a user_id foreign key with a UNIQUE constraint, so at most one settings row points back to each user.
+    USER ||--|| USER_SETTINGS : has
+    USER {
+        int id PK
+        string email
+    }
+    USER_SETTINGS {
+        int id PK
+        int user_id FK
+        string theme
+    }
+```
+
+The `UNIQUE` on `user_settings.user_id` is what turns the one-to-many shape into one-to-one: without it, many settings rows could point at the same user.
+
 ## From requirements to a schema
 
 Putting it together for the store - customers place orders, orders contain products via line items. **Try it: complete the joins** so the result lists each customer name, order id, product name, and quantity. Walk the keys from `customers` to `orders` to `order_items` to `products`.

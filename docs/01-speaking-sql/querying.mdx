@@ -6,6 +6,7 @@ description: The anatomy of a SELECT - choosing columns, filtering with WHERE, h
 ---
 
 import SqlRunner from '@site/src/components/SqlRunner';
+import Quiz from '@site/src/components/Quiz';
 
 # Querying data
 
@@ -218,3 +219,61 @@ FROM customers;
 Eve's country is `NULL`, so `country = 'IE'` is *unknown* (not true) and her region is `'away'`.
 
 </details>
+
+## Quick quiz
+
+<Quiz
+  title="Querying data"
+  questions={[
+    {
+      prompt: "Which two clauses are the only required parts of a SELECT?",
+      options: [
+        {text: "SELECT and FROM", correct: true},
+        {text: "SELECT and WHERE", correct: false},
+        {text: "FROM and ORDER BY", correct: false},
+        {text: "SELECT and LIMIT", correct: false},
+      ],
+      explanation: "You must say what to return (SELECT) and where to read it (FROM). WHERE, ORDER BY, and LIMIT are optional filtering and shaping.",
+    },
+    {
+      prompt: "Eve has no country recorded (NULL). Which condition matches her row?",
+      options: [
+        {text: "country IS NULL", correct: true},
+        {text: "country = NULL", correct: false},
+        {text: "country = ''", correct: false},
+        {text: "country <> 'IE'", correct: false},
+      ],
+      explanation: "Any comparison with NULL yields 'unknown', so country = NULL matches nothing. IS NULL is the only test for a missing value.",
+    },
+    {
+      prompt: "Why can't you reference a SELECT-list alias inside the WHERE clause?",
+      options: [
+        {text: "WHERE runs before SELECT, so the alias does not exist yet", correct: true},
+        {text: "Aliases are only allowed in ORDER BY", correct: false},
+        {text: "WHERE cannot use any column names", correct: false},
+        {text: "It is allowed in every database", correct: false},
+      ],
+      explanation: "SQL evaluates FROM and WHERE before SELECT computes its column list, so a WHERE clause cannot see an alias defined in SELECT.",
+    },
+    {
+      prompt: "What does COALESCE(country, 'unknown') return for a row where country is NULL?",
+      options: [
+        {text: "'unknown'", correct: true},
+        {text: "NULL", correct: false},
+        {text: "An empty string", correct: false},
+        {text: "An error", correct: false},
+      ],
+      explanation: "COALESCE returns its first non-NULL argument. When country is NULL, it falls through to 'unknown'.",
+    },
+    {
+      prompt: "ORDER BY total DESC LIMIT 2 on the orders table returns which rows?",
+      options: [
+        {text: "The two largest totals (the 90.00 orders 103 and 105)", correct: true},
+        {text: "The two smallest totals", correct: false},
+        {text: "The two oldest orders", correct: false},
+        {text: "A random pair of rows", correct: false},
+      ],
+      explanation: "DESC sorts largest first; the two 90.00 orders (103 and 105) top the list, and LIMIT 2 keeps them.",
+    },
+  ]}
+/>

@@ -5,6 +5,7 @@ description: Collapse many rows into summaries with COUNT, SUM, AVG, GROUP BY an
 ---
 
 import SqlRunner from '@site/src/components/SqlRunner';
+import Quiz from '@site/src/components/Quiz';
 
 # Aggregating rows
 
@@ -41,6 +42,49 @@ HAVING SUM(total) > 50;            -- then keep only big-spending groups`}
 />
 
 You cannot put `SUM(total) > 50` in `WHERE`, because when `WHERE` runs the sum does not exist yet. That single fact is why `HAVING` has to exist at all.
+
+## MIN and MAX: the extremes
+
+`MIN` and `MAX` return the smallest and largest value in a group - the cheapest order, the latest date, the highest spender:
+
+<SqlRunner query={`SELECT MIN(total) AS cheapest, MAX(total) AS dearest
+FROM orders;`} />
+
+They work on text and dates too (`MAX(created_at)` is the most recent order).
+
+## Counting, and how NULL changes the answer
+
+`COUNT` has three forms, and the difference is all about `NULL`:
+
+- **`COUNT(*)`** counts **rows** - it never skips anything.
+- **`COUNT(col)`** counts rows where `col` **is not NULL** - missing values are ignored.
+- **`COUNT(DISTINCT col)`** counts the **distinct non-NULL** values.
+
+Eve has no country, so `COUNT(country)` is one less than `COUNT(*)`, and `COUNT(DISTINCT country)` collapses IE, LT to just two:
+
+<SqlRunner
+  query={`SELECT COUNT(*) AS rows_total,
+       COUNT(country) AS with_country,
+       COUNT(DISTINCT country) AS distinct_countries
+FROM customers;`}
+  height={120}
+/>
+
+This NULL-skipping is not unique to `COUNT`: **`SUM` and `AVG` ignore NULLs too**. `AVG` divides by the count of *non-NULL* values, not by the row count - so a column full of gaps still averages cleanly, but be sure that is the average you meant.
+
+## Grouping by more than one column
+
+`GROUP BY` can take several columns - one group per **combination** of their values. "How many customers per country, split by... " - here, count customers per country, ordered:
+
+<SqlRunner
+  query={`SELECT country, COUNT(*) AS customers
+FROM customers
+GROUP BY country
+ORDER BY customers DESC, country;`}
+  height={140}
+/>
+
+To group on a true combination, list the columns: `GROUP BY country, <another column>` makes one row per distinct pair. The same rule still holds - every non-aggregated `SELECT` column must appear in the `GROUP BY`.
 
 ## Exercise
 
@@ -83,3 +127,61 @@ HAVING SUM(total) > 30.00;
 ```
 
 </details>
+
+## Quick quiz
+
+<Quiz
+  title="Aggregating rows"
+  questions={[
+    {
+      prompt: "In a query with GROUP BY, which columns may appear bare in the SELECT list?",
+      options: [
+        {text: "Only the columns in the GROUP BY; everything else must be wrapped in an aggregate", correct: true},
+        {text: "Any column from the table", correct: false},
+        {text: "Only columns wrapped in COUNT", correct: false},
+        {text: "None - every column must be aggregated", correct: false},
+      ],
+      explanation: "A grouped query has many values per group for non-grouped columns, so each must either be in the GROUP BY or summarised by an aggregate.",
+    },
+    {
+      prompt: "What is the difference between WHERE and HAVING?",
+      options: [
+        {text: "WHERE filters rows before grouping; HAVING filters groups after the aggregate is computed", correct: true},
+        {text: "They are interchangeable", correct: false},
+        {text: "HAVING runs first, then WHERE", correct: false},
+        {text: "WHERE only works on numbers", correct: false},
+      ],
+      explanation: "WHERE drops individual rows before grouping; HAVING tests the aggregated result, so it can reference SUM, COUNT, etc.",
+    },
+    {
+      prompt: "The customers table has 6 rows; Eve's country is NULL. What does COUNT(country) return?",
+      options: [
+        {text: "5", correct: true},
+        {text: "6", correct: false},
+        {text: "1", correct: false},
+        {text: "2", correct: false},
+      ],
+      explanation: "COUNT(col) skips NULLs, so Eve's missing country is not counted: 6 rows minus 1 NULL = 5. COUNT(*) would return 6.",
+    },
+    {
+      prompt: "How does AVG treat NULL values in its column?",
+      options: [
+        {text: "It ignores them, dividing the sum by the count of non-NULL values", correct: true},
+        {text: "It treats each NULL as zero", correct: false},
+        {text: "It returns NULL if any value is NULL", correct: false},
+        {text: "It raises an error", correct: false},
+      ],
+      explanation: "SUM and AVG both skip NULLs. AVG divides by the number of non-NULL values, not the total row count.",
+    },
+    {
+      prompt: "What does COUNT(DISTINCT country) return for the customers table (countries IE, IE, LT, LT, NULL, IE)?",
+      options: [
+        {text: "2", correct: true},
+        {text: "3", correct: false},
+        {text: "5", correct: false},
+        {text: "6", correct: false},
+      ],
+      explanation: "DISTINCT collapses duplicates and ignores NULL, leaving just IE and LT - two distinct countries.",
+    },
+  ]}
+/>

@@ -38,7 +38,21 @@ A schema is never finished - you add a column, a table, an index. A **migration*
 ALTER TABLE customers ADD COLUMN signup_date DATE;
 ```
 
-A migration usually has an **up** (apply) and ideally a **down** (revert) step, so a bad change can be rolled back. Tools include Flyway, Liquibase, Alembic (Python), Rails migrations, Prisma Migrate, and Atlas - many built into the ORM.
+A migration usually has an **up** (apply) and ideally a **down** (revert) step, so a bad change can be rolled back. The down is the mirror image of the up - whatever the up creates, the down removes:
+
+```sql
+-- 0007_add_signup_date.sql
+
+-- up: apply the change
+ALTER TABLE customers ADD COLUMN signup_date DATE;
+
+-- down: revert it
+ALTER TABLE customers DROP COLUMN signup_date;
+```
+
+Run the up to move the schema forward; run the down to undo it if the deploy goes wrong. Tools include Flyway, Liquibase, Alembic (Python), Rails migrations, Prisma Migrate, and Atlas - many built into the ORM, with the up/down pair written as two functions or two SQL sections.
+
+Not every migration has a clean down. Some are **irreversible**: dropping a column throws its data away, so a down that "re-adds" it can only restore the empty column, never the lost values. The same goes for collapsing two columns into one or changing a type with a lossy cast. For these, the honest down is either no-op (the change is permanent) or a documented manual restore-from-backup - and it is a strong argument for the expand-contract pattern below, which keeps the old data around until you are certain you no longer need it.
 
 For a live system you cannot just rename a column out from under running code. The 2026 standard is the **expand-contract** pattern for **zero-downtime** changes: add the new shape, migrate data and deploy code that writes both, then drop the old shape once nothing uses it. Declarative-schema tools (Atlas, Prisma) increasingly generate these steps for you.
 

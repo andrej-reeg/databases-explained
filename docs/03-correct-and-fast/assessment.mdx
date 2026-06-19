@@ -40,7 +40,7 @@ A **composite index** `(status, created_at)` - equality column first, then the r
 
 An index on `status` alone helps the equality but still leaves a sort and a range scan on `created_at`. Putting `created_at` first would break the `status =` lookup. Order matters: **equality, then range/sort**.
 
-A **covering index** `(status, created_at)` that also INCLUDEs the selected columns could answer the query from the index alone - no table fetch at all.
+If the query only selects columns already in the index key - plus the `rowid` SQLite carries for free - the same `(status, created_at)` index becomes a **covering index**: it answers the query from the index alone, with no table fetch (the plan reads `USING COVERING INDEX`). To cover an extra column in SQLite you add it to the index key, e.g. `(status, created_at, id)`; SQLite has no separate `INCLUDE` clause (that is a Postgres/SQL-Server feature).
 
 </details>
 

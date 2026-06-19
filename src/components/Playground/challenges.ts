@@ -720,4 +720,136 @@ export const CHALLENGES: Challenge[] = [
       "WITH spend AS (SELECT c.id, c.name, SUM(oi.quantity * oi.unit_price) AS total FROM customers c JOIN orders o ON o.customer_id = c.id JOIN order_items oi ON oi.order_id = o.id WHERE o.status = 'paid' GROUP BY c.id, c.name) SELECT name, total FROM spend ORDER BY total DESC LIMIT 1;",
     hint: 'Total each customer\'s paid spend in a CTE, then take the top row.',
   },
+
+  // ---- Set operations: UNION / UNION ALL / INTERSECT / EXCEPT ----
+  {
+    id: 51,
+    title: 'Combine two countries',
+    difficulty: 'Beginner',
+    topic: 'UNION',
+    prompt:
+      "Write one query that lists the customer country 'IE', and a second query for 'US', and combine them with UNION so each country appears once. Return the country column.",
+    solution:
+      "SELECT country FROM customers WHERE country = 'IE' UNION SELECT country FROM customers WHERE country = 'US';",
+    hint: 'UNION stacks two SELECTs and removes duplicate rows.',
+  },
+  {
+    id: 52,
+    title: 'Footwear and accessories list',
+    difficulty: 'Beginner',
+    topic: 'UNION ALL',
+    prompt:
+      'Return the names of all Footwear (category 1) products, then all Accessories (category 3) products, keeping every row (do not deduplicate). Use UNION ALL.',
+    solution:
+      'SELECT name FROM products WHERE category_id = 1 UNION ALL SELECT name FROM products WHERE category_id = 3;',
+    hint: 'UNION ALL keeps duplicates and is cheaper than UNION.',
+  },
+  {
+    id: 53,
+    title: 'Both paid and pending',
+    difficulty: 'Intermediate',
+    topic: 'INTERSECT',
+    prompt:
+      'Return the customer_id of every customer who has at least one paid order AND at least one pending order. Use INTERSECT.',
+    solution:
+      "SELECT customer_id FROM orders WHERE status = 'paid' INTERSECT SELECT customer_id FROM orders WHERE status = 'pending';",
+    hint: 'INTERSECT keeps only rows present in both result sets.',
+  },
+  {
+    id: 54,
+    title: 'Orders with no payment',
+    difficulty: 'Intermediate',
+    topic: 'EXCEPT',
+    prompt:
+      'Return the id of every order that does NOT appear in the payments table. Take all order ids and subtract the order_ids that have a payment, using EXCEPT.',
+    solution: 'SELECT id FROM orders EXCEPT SELECT order_id FROM payments;',
+    hint: 'EXCEPT returns rows in the first query that are absent from the second.',
+  },
+
+  // ---- More window functions: DENSE_RANK / NTILE / LEAD / explicit frame ----
+  {
+    id: 55,
+    title: 'Dense salary ranking',
+    difficulty: 'Advanced',
+    topic: 'Window / DENSE_RANK',
+    prompt:
+      'Rank employees by salary within their department (1 = highest paid) using DENSE_RANK so ties share a rank with no gaps after. Return name, department, salary, and the rank. Order by department, then rank, then name.',
+    solution:
+      'SELECT name, department, salary, DENSE_RANK() OVER (PARTITION BY department ORDER BY salary DESC) AS rnk FROM employees ORDER BY department, rnk, name;',
+    ordered: true,
+    hint: 'DENSE_RANK() OVER (PARTITION BY department ORDER BY salary DESC).',
+  },
+  {
+    id: 56,
+    title: 'Price quartiles',
+    difficulty: 'Advanced',
+    topic: 'Window / NTILE',
+    prompt:
+      'Split products into 4 equal price buckets from most to least expensive using NTILE(4). Return name, price, and the quartile (1 = priciest bucket). Order by price descending, then name.',
+    solution:
+      'SELECT name, price, NTILE(4) OVER (ORDER BY price DESC) AS quartile FROM products ORDER BY price DESC, name;',
+    ordered: true,
+    hint: 'NTILE(4) OVER (ORDER BY price DESC) divides the rows into 4 groups.',
+  },
+  {
+    id: 57,
+    title: 'Next hire’s salary',
+    difficulty: 'Advanced',
+    topic: 'Window / LEAD',
+    prompt:
+      'Order employees by hire_date. For each, return name, hire_date, salary, and the salary of the employee hired just AFTER them (NULL for the most recent hire). Use LEAD.',
+    solution:
+      'SELECT name, hire_date, salary, LEAD(salary) OVER (ORDER BY hire_date) AS next_salary FROM employees ORDER BY hire_date;',
+    ordered: true,
+    hint: 'LEAD(salary) OVER (ORDER BY hire_date) looks one row forward.',
+  },
+  {
+    id: 58,
+    title: 'Moving average of payments',
+    difficulty: 'Advanced',
+    topic: 'Window / frame',
+    prompt:
+      'Order payments by paid_at (then order_id to break ties). For each row return order_id, amount, and the average amount over the current row and the two before it, using an explicit frame ROWS BETWEEN 2 PRECEDING AND CURRENT ROW.',
+    solution:
+      'SELECT order_id, amount, AVG(amount) OVER (ORDER BY paid_at, order_id ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) AS moving_avg FROM payments ORDER BY paid_at, order_id;',
+    ordered: true,
+    hint: 'Add a frame clause: AVG(amount) OVER (ORDER BY ... ROWS BETWEEN 2 PRECEDING AND CURRENT ROW).',
+  },
+
+  // ---- DML: write-then-SELECT (press Reset data to retry) ----
+  {
+    id: 59,
+    title: 'Add a category',
+    difficulty: 'Intermediate',
+    topic: 'INSERT',
+    prompt:
+      "Insert a new category with id 6 and name 'Recovery', then SELECT its id and name to show the result. (Press Reset data to retry from a clean state.)",
+    solution:
+      "INSERT INTO categories (id, name) VALUES (6, 'Recovery'); SELECT id, name FROM categories WHERE name = 'Recovery';",
+    hint: 'INSERT INTO categories (id, name) VALUES (...); then SELECT the new row back.',
+  },
+  {
+    id: 60,
+    title: 'Raise nutrition prices',
+    difficulty: 'Intermediate',
+    topic: 'UPDATE',
+    prompt:
+      'Increase the price of every Nutrition product (category_id 4) by 10% (multiply by 1.10), then SELECT each Nutrition product’s name and new price ordered by name to show the result. (Press Reset data to retry.)',
+    solution:
+      'UPDATE products SET price = price * 1.10 WHERE category_id = 4; SELECT name, price FROM products WHERE category_id = 4 ORDER BY name;',
+    ordered: true,
+    hint: 'UPDATE products SET price = price * 1.10 WHERE category_id = 4; then SELECT them back.',
+  },
+  {
+    id: 61,
+    title: 'Purge cancelled orders',
+    difficulty: 'Intermediate',
+    topic: 'DELETE',
+    prompt:
+      "Delete every order whose status is 'cancelled', then SELECT each remaining status with its order count (status, count) ordered by status to show the result. (Press Reset data to retry.)",
+    solution:
+      "DELETE FROM orders WHERE status = 'cancelled'; SELECT status, COUNT(*) AS n FROM orders GROUP BY status ORDER BY status;",
+    ordered: true,
+    hint: "DELETE FROM orders WHERE status = 'cancelled'; then GROUP BY status to show what survives.",
+  },
 ];

@@ -35,6 +35,16 @@ function starter(c: Challenge): string {
   return `-- Challenge ${c.id}: ${c.title}\n-- Write your query, then press Run (Ctrl/Cmd+Enter).\n`;
 }
 
+// Challenge id encoded in the URL hash (e.g. `#challenge-7`), or null if absent
+// or unknown. Tolerates a bare `#7` too.
+function hashId(): number | null {
+  if (typeof window === 'undefined') return null;
+  const m = window.location.hash.match(/(\d+)/);
+  if (!m) return null;
+  const id = Number(m[1]);
+  return CHALLENGES.some((c) => c.id === id) ? id : null;
+}
+
 type Filter = 'All' | Difficulty;
 
 const iconProps = {
@@ -86,6 +96,29 @@ function Playground(): ReactNode {
   useEffect(() => {
     setSolved(loadSolved());
   }, []);
+
+  // Open the challenge named in the URL hash (deep-link/share), and follow
+  // back/forward navigation between challenges.
+  useEffect(() => {
+    const fromHash = hashId();
+    if (fromHash != null) setCurrentId(fromHash);
+    const onHash = () => {
+      const id = hashId();
+      if (id != null) setCurrentId(id);
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  // Keep the hash pointed at the current challenge (replace, so it doesn't spam
+  // the history stack as the learner clicks around).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const target = `#challenge-${currentId}`;
+    if (window.location.hash !== target) {
+      window.history.replaceState(null, '', target);
+    }
+  }, [currentId]);
 
   const current = useMemo(
     () => CHALLENGES.find((c) => c.id === currentId) ?? CHALLENGES[0],

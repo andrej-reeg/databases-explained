@@ -165,10 +165,58 @@
 }
 
 .editorWrap {
+  position: relative;
   background: var(--ifm-background-color);
   line-height: 1.5;
   color: var(--ifm-font-color-base);
   overflow: auto;
+}
+
+.suggest {
+  position: fixed;
+  z-index: 200;
+  list-style: none;
+  margin: 0;
+  padding: 0.2rem;
+  min-width: 180px;
+  max-height: 16rem;
+  overflow-y: auto;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: var(--ifm-global-radius);
+  background: var(--ifm-background-surface-color);
+  box-shadow: var(--ifm-global-shadow-md);
+}
+
+.suggestItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--ifm-global-radius);
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.suggestActive {
+  background: var(--ifm-color-primary);
+  color: #fff;
+}
+
+.suggestText {
+  white-space: nowrap;
+}
+
+.suggestKind {
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.7;
+  max-width: 11rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .editorArea:focus {

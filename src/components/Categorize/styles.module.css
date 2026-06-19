@@ -40,6 +40,10 @@
 }
 
 .btn {
+  /* Reset native control styling - iOS/mobile Safari otherwise paint a
+     system background over our colors, and grey out the disabled state. */
+  -webkit-appearance: none;
+  appearance: none;
   padding: 0.35rem 0.7rem;
   border: 1px solid var(--ifm-color-emphasis-300);
   border-radius: var(--ifm-global-radius);
@@ -58,6 +62,8 @@
 
 .btn:disabled {
   cursor: default;
+  /* iOS dims disabled buttons, hiding the right/wrong color - keep it solid. */
+  opacity: 1;
 }
 
 .right {

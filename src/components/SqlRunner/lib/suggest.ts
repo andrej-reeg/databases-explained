@@ -25,6 +25,26 @@ export const SQL_KEYWORDS = [
 const AGG = ['COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'DISTINCT', 'COALESCE', 'ROUND', 'CASE'];
 const OPS = ['AND', 'OR', 'NOT', 'IN', 'LIKE', 'BETWEEN', 'IS NULL', 'IS NOT NULL'];
 
+// Offered inside a CREATE TABLE column definition, never table/column names.
+const DATA_TYPES = [
+  'INTEGER', 'TEXT', 'REAL', 'BLOB', 'NUMERIC', 'BOOLEAN', 'DATE',
+  'DATETIME', 'VARCHAR', 'CHAR', 'DECIMAL', 'FLOAT', 'DOUBLE',
+];
+const COL_CONSTRAINTS = [
+  'PRIMARY KEY', 'NOT NULL', 'UNIQUE', 'DEFAULT', 'CHECK', 'REFERENCES',
+  'COLLATE', 'AUTOINCREMENT', 'GENERATED ALWAYS AS',
+];
+const TABLE_CONSTRAINTS = ['PRIMARY KEY', 'FOREIGN KEY', 'UNIQUE', 'CHECK', 'CONSTRAINT'];
+
+// Blank out comments and string literals so paren-depth/keyword scans aren't
+// fooled by `--`, `/* */` or text inside quotes. Length is preserved.
+function stripNoise(s: string): string {
+  return s
+    .replace(/--[^\n]*/g, (m) => ' '.repeat(m.length))
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => ' '.repeat(m.length))
+    .replace(/'(?:[^']|'')*'/g, (m) => ' '.repeat(m.length));
+}
+
 // Words that can never be a table alias (so `FROM customers WHERE` doesn't read
 // WHERE as an alias of customers).
 const RESERVED = new Set([
@@ -77,6 +97,66 @@ export function computeSuggestions(
   }
   const scope = Array.from(new Set(refMap.values()));
 
+  // ---- DDL / paren-aware contexts ------------------------------------------
+  // Inside a CREATE TABLE column list, INSERT column list or CREATE INDEX
+  // column list the generic clause logic is wrong (it offers table/column
+  // names where data types, constraints, or a *specific* table's columns
+  // belong). Detect those first and short-circuit.
+  const bs = stripNoise(before.slice(stmtStart));
+  const bsUp = bs.toUpperCase();
+  const openStack: number[] = []; // indices of currently-open '('
+  let lastTopComma = -1; // last comma at the outermost paren level
+  for (let i = 0; i < bs.length; i++) {
+    const c = bs[i];
+    if (c === '(') openStack.push(i);
+    else if (c === ')') openStack.pop();
+    else if (c === ',' && openStack.length === 1) lastTopComma = i;
+  }
+  const depth = openStack.length;
+  const openIdx = depth ? openStack[depth - 1] : -1;
+
+  const colsOf = (real: string): SugItem[] =>
+    (byTable[real] ?? []).map((name) => ({text: name, kind: 'column', detail: real}));
+
+  let ddlBase: SugItem[] | null = null;
+  if (prevChar !== '.' && depth >= 1) {
+    if (/^\s*CREATE\s+(?:TEMP(?:ORARY)?\s+)?TABLE\b/i.test(bs)) {
+      if (depth >= 2) {
+        // Nested paren: only `REFERENCES <table>( … )` references real columns.
+        const refM = bs.slice(0, openIdx).match(/\bREFERENCES\s+("?[A-Za-z_]\w*"?)\s*$/i);
+        const real = refM ? findTable(refM[1]) : undefined;
+        if (real) ddlBase = colsOf(real);
+        else return null; // CHECK(expr) etc. — never offer tables/columns here
+      } else {
+        // Top-level column-definition list: name -> type -> constraints.
+        const fragStart = Math.max(openIdx, lastTopComma);
+        const tokens = bs.slice(fragStart + 1).trim().split(/\s+/).filter(Boolean);
+        const completed = word === '' ? tokens.length : tokens.length - 1;
+        if (completed <= 0) {
+          if (word === '') return null; // fresh column-name slot — suggest nothing
+          ddlBase = TABLE_CONSTRAINTS.map((text) => ({text, kind: 'keyword'}));
+        } else {
+          ddlBase = [...DATA_TYPES, ...COL_CONSTRAINTS].map((text) => ({text, kind: 'keyword'}));
+        }
+      }
+    } else {
+      // INSERT INTO <t> (col, …)  or  CREATE INDEX … ON <t> (col, …)
+      const insM = bsUp.match(/\bINSERT\s+INTO\s+("?[A-Z_]\w*"?)/);
+      const valuesIdx = bsUp.indexOf('VALUES');
+      const idxM = /^\s*CREATE\s+(?:UNIQUE\s+)?INDEX\b/i.test(bs)
+        ? bsUp.match(/\bON\s+("?[A-Z_]\w*"?)/)
+        : null;
+      const ref =
+        insM && (valuesIdx === -1 || openIdx < valuesIdx)
+          ? insM[1]
+          : idxM
+            ? idxM[1]
+            : null;
+      const real = ref ? findTable(ref) : undefined;
+      if (real) ddlBase = colsOf(real);
+    }
+  }
+
   // Which clause are we in? Anchor scan is limited to the current statement.
   let mode: Mode = 'keywords';
   let qualifier: string | null = null;
@@ -108,7 +188,7 @@ export function computeSuggestions(
   }
 
   // Don't pop the box on a bare space unless we're in a name-expecting clause.
-  if (word === '' && mode === 'keywords') return null;
+  if (word === '' && mode === 'keywords' && !ddlBase) return null;
 
   const tbl = (l: string[]): SugItem[] => l.map((text) => ({text, kind: 'table'}));
   const kw = (l: string[]): SugItem[] => l.map((text) => ({text, kind: 'keyword'}));
@@ -123,7 +203,10 @@ export function computeSuggestions(
 
   let base: SugItem[];
   let appendKw = true;
-  if (qualifier) {
+  if (ddlBase) {
+    base = ddlBase;
+    appendKw = false; // DDL contexts get their own fixed vocabulary
+  } else if (qualifier) {
     const real = refMap.get(qualifier.toLowerCase()) ?? findTable(qualifier);
     base = real
       ? (byTable[real] ?? []).map((name) => ({text: name, kind: 'column', detail: real}))

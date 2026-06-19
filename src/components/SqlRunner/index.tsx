@@ -77,12 +77,14 @@ function Runner({
   solution,
   ordered,
   height,
+  onVerdict,
 }: {
   initialQuery: string;
   schema: string;
   solution?: string;
   ordered: boolean;
   height: number;
+  onVerdict?: (verdict: 'correct' | 'wrong') => void;
 }) {
   const wasmUrl = useBaseUrl('/sql-wasm.wasm');
   const {colorMode} = useColorMode();
@@ -192,12 +194,17 @@ function Runner({
         setMessage(`${last.values.length} row${last.values.length === 1 ? '' : 's'} returned.`);
         if (solution) {
           const exp = expectedResult();
-          setVerdict(exp && matches(last, exp, ordered) ? 'correct' : 'wrong');
+          const v = exp && matches(last, exp, ordered) ? 'correct' : 'wrong';
+          setVerdict(v);
+          onVerdict?.(v);
         }
       } else {
         const changed = db.getRowsModified();
         setMessage(`Statement ran. ${changed} row${changed === 1 ? '' : 's'} changed.`);
-        if (solution) setVerdict('wrong'); // expected a result to check
+        if (solution) {
+          setVerdict('wrong'); // expected a result to check
+          onVerdict?.('wrong');
+        }
       }
     } catch (e: any) {
       setError(String(e?.message ?? e));
@@ -446,6 +453,7 @@ export default function SqlRunner({
   solution,
   ordered = false,
   height = 120,
+  onVerdict,
 }: {
   query?: string;
   schema?: string;
@@ -454,6 +462,8 @@ export default function SqlRunner({
   /** Require the same row order (set for ORDER BY exercises). */
   ordered?: boolean;
   height?: number;
+  /** Fired after a solution-checked run, with the resulting verdict. */
+  onVerdict?: (verdict: 'correct' | 'wrong') => void;
 }) {
   return (
     <BrowserOnly fallback={<div className={styles.runner}>Loading SQL sandbox…</div>}>
@@ -464,6 +474,7 @@ export default function SqlRunner({
           solution={solution}
           ordered={ordered}
           height={height}
+          onVerdict={onVerdict}
         />
       )}
     </BrowserOnly>

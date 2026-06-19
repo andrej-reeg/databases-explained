@@ -44,4 +44,39 @@ for (const [sql, expected] of checks) {
 }
 
 console.log(`${checks.length - failed}/${checks.length} SQL smoke checks passed`);
-process.exit(failed ? 1 : 0);
+
+// --- Playground: run every challenge solution against its schema ---
+const pgSrc = readFileSync('src/components/Playground/challenges.ts', 'utf8');
+const pgSchema = pgSrc.match(/export\s+const\s+SCHEMA_SQL\s*=\s*`([^`]*)`/)?.[1];
+if (!pgSchema) {
+  console.error('Could not extract SCHEMA_SQL from challenges.ts');
+  process.exit(1);
+}
+// Pull each `solution: '...'` / "..." string literal (handles escaped quotes).
+const solutions = [
+  ...pgSrc.matchAll(/solution:\s*('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")/g),
+].map((m) => (0, eval)(m[1]));
+
+let pgFailed = 0;
+for (const sol of solutions) {
+  const tdb = new SQL.Database();
+  try {
+    tdb.run(pgSchema);
+    const res = tdb.exec(sol);
+    const rows = res[res.length - 1]?.values?.length ?? 0;
+    if (rows === 0) {
+      pgFailed++;
+      console.error(`PLAYGROUND empty result:\n  ${sol}`);
+    }
+  } catch (e) {
+    pgFailed++;
+    console.error(`PLAYGROUND error:\n  ${sol}\n  ${String(e.message || e)}`);
+  } finally {
+    tdb.close();
+  }
+}
+console.log(
+  `${solutions.length - pgFailed}/${solutions.length} playground solutions passed`,
+);
+
+process.exit(failed || pgFailed ? 1 : 0);

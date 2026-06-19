@@ -155,6 +155,38 @@ Materialized views are server-side (PostgreSQL, Oracle, SQL Server's indexed vie
 
 Rule of thumb: start at your engine's default, and raise the level only for the specific transactions whose correctness demands it.
 
+## Case study: Shopify replaces Redis with MySQL for inventory reservations
+
+:::info Source
+This section summarizes Shopify's engineering post **["We replaced Redis with MySQL for inventory reservations—and it scaled"](https://shopify.engineering/scaling-inventory-reservations)** by Emilie Noel (May 12, 2026). All facts, figures, and design decisions below are theirs; we retell them here because the story exercises nearly every concept in this lesson - isolation levels, deadlocks, lock ordering, and ACID - on a system that handled **$5.1M in sales per minute** at the Black Friday 2025 peak.
+:::
+
+**The problem is a race for the last unit.** When a buyer clicks "Complete purchase," the items must still be available. Get it wrong one way and two buyers claim the same unit (oversell); the other way, you tell a buyer it's sold out when it isn't (undersell). Shopify's **oversell protection** does two things: *reserve* inventory when payment starts, then *claim* it (permanently deduct) when payment succeeds.
+
+**The old design split the source of truth across two systems.** Reservations lived in Redis (`DECR`/`INCR` on a quantity key); the inventory ledger lived in MySQL. The claim step had to update MySQL *and* clean up Redis - and those two writes could not be wrapped in **one atomic transaction**. Depending on order, a crash between them caused overselling or underselling. This is the **A** and **I** of [ACID](../00-orientation/intro.mdx#acid-why-relational-databases-are-trusted-with-money) breaking down precisely because the work spanned two stores. Moving reservations into the same MySQL database as the ledger let everything sit in a single ACID transaction.
+
+**The new design: one row per unit, plus `SKIP LOCKED`.** Instead of one row with a `quantity` column (a single hot row every checkout fights over), an item with 10 available units gets 10 rows. Reserving three units selects and moves three rows in one transaction:
+
+```sql
+-- Grab available units without waiting on rows another checkout already holds
+SELECT id FROM reservation_units
+WHERE shop_id = ? AND inventory_item_id = ? AND inventory_group_id = ?
+LIMIT 3
+FOR UPDATE SKIP LOCKED;
+```
+
+`FOR UPDATE SKIP LOCKED` is the key: if another transaction has locked some rows, MySQL **skips them and returns other available rows** instead of blocking. No waiting on the same row means far less contention - this is the pessimistic-locking path from earlier, redesigned so transactions rarely collide. A bounded pool (capped at **1,000 rows per item/location**) keeps the `SKIP LOCKED` scan fast; a replenishment process refills it from the ledger.
+
+Three of their hard-won fixes are direct applications of this lesson:
+
+- **Consistent lock ordering to kill deadlocks.** Reserve and claim touched two tables in *different* orders and deadlocked - exactly the [opposite-order recipe](#deadlocks-two-transactions-opposite-order) above. The fix was the textbook one: make every path acquire locks in the **same order** (reserve always `DELETE`s from the units table first, then `INSERT`s into `reserved_quantities`).
+- **READ COMMITTED to avoid gap locks.** Running `SELECT ... FOR UPDATE SKIP LOCKED` on a near-empty table under MySQL's default **Repeatable Read** took **gap locks** (including on the "supremum" pseudo-record) that blocked replenishment from inserting and risked deadlocks. Dropping those transactions to **Read Committed** - which doesn't take gap locks the same way - let replenishment proceed. A real instance of the rule: *raise or lower the level only for the specific transactions that need it.*
+- **Composite primary key for fewer locks.** With an auto-increment PK, InnoDB locked two indexes per reservation (the secondary index in the `WHERE` and the clustered PK). Switching to a composite PK on the filter columns cut it to **one lock per row** - index design directly changing lock count and throughput.
+
+**The twist: the real bottleneck wasn't the database engine.** They optimized queries and locks for weeks, but hit a throughput ceiling with CPU not maxed and latency fine. By tagging every SQL statement with the business process holding the connection (`/* conn_tag:checkout_completion */`) and aggregating at the proxy layer, they found *other* checkout code holding connections too long - reservations were just the straw that broke an already-depleted connection pool. Cleaning that path removed 50% of reads and 33% of transactions on the primary. The lesson they draw - *"the answer is often in the plumbing, not the engine"* - is why this lesson stresses keeping transactions **short** and not holding locks (or connections) across slow work.
+
+They cut over with a **shadow mode** dual-write (both systems live, Redis the source of truth) until MySQL proved correct on real traffic, then flipped the source of truth with a kill switch to revert. The payoff: writer CPU stayed under 50% during flash sales, with no oversells.
+
 ## Quick quiz
 
 <Quiz

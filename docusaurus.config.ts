@@ -97,6 +97,11 @@ const config: Config = {
           position: 'left',
           label: 'Lessons',
         },
+        {
+          to: '/playground',
+          label: 'Playground',
+          position: 'left',
+        },
       ],
     },
     footer: {

@@ -1,0 +1,314 @@
+.page {
+  width: 100%;
+  margin: 0;
+  padding: 2.5rem 2rem 4rem;
+}
+
+.header {
+  margin-bottom: 2rem;
+}
+
+.title {
+  font-size: 2.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.lede {
+  max-width: 60ch;
+  color: var(--ifm-color-emphasis-700);
+  margin-bottom: 1.25rem;
+}
+
+.lede kbd {
+  font-size: 0.8em;
+}
+
+/* Progress */
+.progress {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.progressBar {
+  position: relative;
+  flex: 1;
+  max-width: 320px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--ifm-color-emphasis-200);
+  overflow: hidden;
+}
+
+.progressFill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--ifm-color-primary);
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.progressLabel {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ifm-color-emphasis-800);
+  white-space: nowrap;
+}
+
+.resetLink {
+  background: none;
+  border: none;
+  color: var(--ifm-color-primary);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0;
+  text-decoration: underline;
+}
+
+/* Two-column layout */
+.layout {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 1.75rem;
+  align-items: start;
+}
+
+@media (max-width: 860px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Sidebar */
+.sidebar {
+  position: sticky;
+  top: calc(var(--ifm-navbar-height) + 1rem);
+  align-self: start;
+}
+
+@media (max-width: 860px) {
+  .sidebar {
+    position: static;
+  }
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+
+.filterBtn {
+  border: 1px solid var(--ifm-color-emphasis-300);
+  background: transparent;
+  color: var(--ifm-color-emphasis-800);
+  border-radius: 999px;
+  padding: 0.2rem 0.7rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.filterBtn:hover {
+  border-color: var(--ifm-color-primary);
+}
+
+.filterActive {
+  background: var(--ifm-color-primary);
+  border-color: var(--ifm-color-primary);
+  color: #fff;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 70vh;
+  overflow-y: auto;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 8px;
+}
+
+.list li + li {
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.listItem {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 0.5rem 0.65rem;
+  cursor: pointer;
+  font-size: 0.88rem;
+  color: var(--ifm-font-color-base);
+}
+
+.listItem:hover {
+  background: var(--ifm-color-emphasis-100);
+}
+
+.listActive {
+  background: var(--ifm-color-emphasis-200);
+  font-weight: 600;
+}
+
+.check {
+  flex: 0 0 1.4rem;
+  height: 1.4rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: var(--ifm-color-emphasis-200);
+  color: var(--ifm-color-emphasis-700);
+}
+
+.checkDone {
+  background: var(--ifm-color-success);
+  color: #fff;
+}
+
+.itemText {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diff {
+  flex: 0 0 auto;
+  font-size: 0.68rem;
+  font-weight: 700;
+  width: 1.2rem;
+  height: 1.2rem;
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+}
+
+/* Workspace */
+.workspace {
+  min-width: 0;
+}
+
+.taskHead {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.taskNum {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--ifm-color-emphasis-500);
+}
+
+.taskTitle {
+  margin: 0;
+  font-size: 1.6rem;
+}
+
+.solvedTag {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--ifm-color-success);
+}
+
+.badges {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0 0.9rem;
+}
+
+.badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+}
+
+.topic {
+  font-size: 0.8rem;
+  color: var(--ifm-color-emphasis-700);
+  font-family: var(--ifm-font-family-monospace);
+}
+
+/* Difficulty colours - used for both badges and the sidebar letter chip */
+.dBeginner {
+  background: color-mix(in srgb, var(--ifm-color-success) 18%, transparent);
+  color: var(--ifm-color-success-darker);
+}
+
+.dIntermediate {
+  background: color-mix(in srgb, var(--ifm-color-warning) 22%, transparent);
+  color: var(--ifm-color-warning-darker);
+}
+
+.dAdvanced {
+  background: color-mix(in srgb, var(--ifm-color-danger) 18%, transparent);
+  color: var(--ifm-color-danger-darker);
+}
+
+.prompt {
+  font-size: 1.05rem;
+  line-height: 1.6;
+  margin-bottom: 0.75rem;
+}
+
+.hint {
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.hint summary {
+  cursor: pointer;
+  color: var(--ifm-color-primary);
+  font-weight: 600;
+}
+
+.hint p {
+  margin: 0.5rem 0 0;
+  padding: 0.6rem 0.8rem;
+  background: var(--ifm-color-emphasis-100);
+  border-radius: 6px;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.85rem;
+}
+
+/* Nav */
+.nav {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 1.25rem;
+}
+
+.navBtn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  background: var(--ifm-background-surface-color);
+  color: var(--ifm-font-color-base);
+  border-radius: 8px;
+  padding: 0.55rem 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.navBtn svg {
+  flex: 0 0 auto;
+}
+
+.navBtn:hover {
+  border-color: var(--ifm-color-primary);
+  color: var(--ifm-color-primary);
+}
